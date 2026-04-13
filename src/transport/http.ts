@@ -1,8 +1,8 @@
 import http from "node:http";
-import type { Config, DriveClient } from "../types.js";
-import { createServer } from "../server.js";
+import type { Config } from "../types.js";
+import { createServer, type Clients } from "../server.js";
 
-export async function startHttp(driveClient: DriveClient, config: Config): Promise<void> {
+export async function startHttp(clients: Clients, config: Config): Promise<void> {
   const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
 
   const httpServer = http.createServer(async (req, res) => {
@@ -15,7 +15,7 @@ export async function startHttp(driveClient: DriveClient, config: Config): Promi
 
     // MCP endpoint — stateless: new server + transport per request
     if (req.url === "/mcp" && req.method === "POST") {
-      const server = createServer(driveClient);
+      const server = createServer(clients);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined, // Stateless mode for Cloud Run
       });

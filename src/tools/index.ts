@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient } from "../types.js";
+import type { DriveClient, DocsClient, SheetsClient } from "../types.js";
 import { registerListFilesTool } from "./list-files.js";
 import { registerSearchTool } from "./search-files.js";
 import { registerReadFileTool } from "./read-file.js";
@@ -12,14 +12,27 @@ import { registerCopyFileTool } from "./copy-file.js";
 import { registerShareFileTool } from "./share-file.js";
 import { registerListPermissionsTool } from "./list-permissions.js";
 import { registerRemovePermissionTool } from "./remove-permission.js";
+import { registerDocsReadTool } from "./docs-read.js";
+import { registerDocsAppendTool } from "./docs-append.js";
+import { registerDocsInsertTool } from "./docs-insert.js";
+import { registerDocsReplaceTool } from "./docs-replace.js";
+import { registerSheetsReadTool } from "./sheets-read.js";
+import { registerSheetsWriteTool } from "./sheets-write.js";
+import { registerSheetsAppendTool } from "./sheets-append.js";
+import { registerSheetsClearTool } from "./sheets-clear.js";
 
-export function registerAllTools(server: McpServer, drive: DriveClient): void {
-  // Read operations
+export function registerAllTools(
+  server: McpServer,
+  drive: DriveClient,
+  docs: DocsClient,
+  sheets: SheetsClient,
+): void {
+  // Drive — Read operations
   registerListFilesTool(server, drive);
   registerSearchTool(server, drive);
   registerReadFileTool(server, drive);
 
-  // Write operations
+  // Drive — Write operations
   registerCreateFileTool(server, drive);
   registerCreateFolderTool(server, drive);
   registerUpdateFileTool(server, drive);
@@ -27,8 +40,20 @@ export function registerAllTools(server: McpServer, drive: DriveClient): void {
   registerMoveFileTool(server, drive);
   registerCopyFileTool(server, drive);
 
-  // Permissions
+  // Drive — Permissions
   registerShareFileTool(server, drive);
   registerListPermissionsTool(server, drive);
   registerRemovePermissionTool(server, drive);
+
+  // Google Docs
+  registerDocsReadTool(server, docs);
+  registerDocsAppendTool(server, docs);
+  registerDocsInsertTool(server, docs);
+  registerDocsReplaceTool(server, docs);
+
+  // Google Sheets
+  registerSheetsReadTool(server, sheets);
+  registerSheetsWriteTool(server, sheets);
+  registerSheetsAppendTool(server, sheets);
+  registerSheetsClearTool(server, sheets);
 }

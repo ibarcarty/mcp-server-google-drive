@@ -1,8 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient } from "./types.js";
+import type { DriveClient, DocsClient, SheetsClient } from "./types.js";
 import { registerAllTools } from "./tools/index.js";
 
-export function createServer(driveClient: DriveClient): McpServer {
+export interface Clients {
+  drive: DriveClient;
+  docs: DocsClient;
+  sheets: SheetsClient;
+}
+
+export function createServer(clients: Clients): McpServer {
   const server = new McpServer(
     {
       name: "mcp-server-google-drive",
@@ -13,15 +19,15 @@ export function createServer(driveClient: DriveClient): McpServer {
         tools: {},
       },
       instructions:
-        "Google Drive MCP server with full CRUD operations. " +
-        "Use drive_search or drive_list_files to find files before reading or modifying them. " +
-        "File IDs are required for most operations — get them from search/list results. " +
-        "Google Docs/Sheets/Slides are automatically exported to readable formats (Markdown, CSV, plain text). " +
-        "Cannot edit Google Docs/Sheets content directly — only metadata and plain text/binary files. " +
+        "Google Drive MCP server with full CRUD, Google Docs editing, and Google Sheets editing. " +
+        "Use drive_search or drive_list_files to find files — file IDs are required for most operations. " +
+        "For Google Docs: use docs_read to read content, docs_append_text/docs_insert_text to write, docs_replace_text to find & replace. " +
+        "For Google Sheets: use sheets_read_range to read cells, sheets_write_range to write, sheets_append_rows to add rows. " +
+        "For file management: create, update, delete, move, copy files and manage permissions. " +
         "Shared drives are included by default in all operations.",
     },
   );
 
-  registerAllTools(server, driveClient);
+  registerAllTools(server, clients.drive, clients.docs, clients.sheets);
   return server;
 }
