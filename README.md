@@ -28,18 +28,27 @@ Follow the [OAuth Setup Guide](docs/oauth-setup.md) to create credentials in Goo
 - Google Docs API
 - Google Sheets API
 
-### 2. Authenticate
+### 2. Install
 
+**From npm** (when published):
 ```bash
 npx @ibarcarty/mcp-server-google-drive auth
+```
+
+**From source:**
+```bash
+git clone https://github.com/ibarcarty/mcp-server-google-drive.git
+cd mcp-server-google-drive
+npm install --ignore-scripts
+npm run build
+node dist/index.js auth
 ```
 
 This opens your browser to authorize with your Google account. Tokens are saved locally.
 
 ### 3. Configure Claude Code / Claude Desktop
 
-Add to your MCP configuration:
-
+**From npm:**
 ```json
 {
   "mcpServers": {
@@ -53,6 +62,23 @@ Add to your MCP configuration:
   }
 }
 ```
+
+**From source:**
+```json
+{
+  "mcpServers": {
+    "google-drive": {
+      "command": "node",
+      "args": ["/path/to/mcp-server-google-drive/dist/index.js"],
+      "env": {
+        "GDRIVE_MCP_OAUTH_PATH": "/path/to/your/oauth-credentials.json"
+      }
+    }
+  }
+}
+```
+
+See [Local Setup Guide](docs/setup-local.md) for detailed instructions.
 
 ## Tools
 

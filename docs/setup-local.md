@@ -6,15 +6,38 @@ Run the MCP server locally using stdio transport. This is the recommended setup 
 
 - Node.js >= 20
 - OAuth credentials set up ([OAuth Setup Guide](oauth-setup.md))
-- Authentication completed (`npx @ibarcarty/mcp-server-google-drive auth`)
+- Authentication completed (see below)
+
+## Install and Authenticate
+
+### Option A: From npm (when published)
+
+```bash
+npx @ibarcarty/mcp-server-google-drive auth
+```
+
+### Option B: From source
+
+```bash
+git clone https://github.com/ibarcarty/mcp-server-google-drive.git
+cd mcp-server-google-drive
+npm install --ignore-scripts
+npm run build
+node dist/index.js auth
+```
 
 ## Configuration
 
 ### Claude Code (VS Code Extension)
 
-Run in your terminal:
+**From npm:**
 ```bash
-claude mcp add google-drive npx -- -y @ibarcarty/mcp-server-google-drive
+claude mcp add google-drive -- npx -y @ibarcarty/mcp-server-google-drive
+```
+
+**From source (using local build):**
+```bash
+claude mcp add google-drive -e GDRIVE_MCP_OAUTH_PATH=/path/to/oauth-credentials.json -- node /path/to/mcp-server-google-drive/dist/index.js
 ```
 
 Or add manually to your MCP configuration:
@@ -69,11 +92,19 @@ If your credentials are in a non-default location, set both paths:
 
 ## Verify it works
 
-After configuring, restart Claude Code/Desktop and try:
+After configuring, **restart Claude Code/Desktop** and try these prompts:
 
-- "List my Drive files" → should use `drive_list_files`
-- "Search for documents about [topic]" → should use `drive_search`
-- "Read the file with ID [fileId]" → should use `drive_read_file`
+**Drive operations:**
+- "List my Drive files" → uses `drive_list_files`
+- "Search for documents about quarterly report" → uses `drive_search`
+
+**Google Docs editing:**
+- "Read the Google Doc with ID [docId]" → uses `docs_read`
+- "Append a summary to the document" → uses `docs_append_text`
+
+**Google Sheets editing:**
+- "Read cells A1:D10 from spreadsheet [sheetId]" → uses `sheets_read_range`
+- "Write these values to the spreadsheet" → uses `sheets_write_range`
 
 ## Troubleshooting
 
@@ -82,11 +113,16 @@ After configuring, restart Claude Code/Desktop and try:
 Run authentication first:
 ```bash
 npx @ibarcarty/mcp-server-google-drive auth
+# or from source: node dist/index.js auth
 ```
 
 ### "OAuth credentials not found"
 
-Make sure your `GDRIVE_MCP_OAUTH_PATH` points to the correct file, or place it in the default location.
+Make sure your `GDRIVE_MCP_OAUTH_PATH` points to the correct file, or place it in the default location (`~/.config/mcp-server-google-drive/oauth-credentials.json` on macOS/Linux, `%APPDATA%\mcp-server-google-drive\oauth-credentials.json` on Windows).
+
+### "Google Docs API has not been used in project..."
+
+Enable the Google Docs API and Google Sheets API in your GCP project. See [OAuth Setup Guide, Step 2](oauth-setup.md).
 
 ### Server shows as "Connected" but tools fail
 
