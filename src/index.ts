@@ -3,7 +3,7 @@
 import { loadConfig } from "./config.js";
 import { runAuthFlow } from "./auth/oauth.js";
 import { createAuthenticatedClient } from "./auth/credentials.js";
-import { createDriveClient, createDocsClient, createSheetsClient } from "./drive/client.js";
+import { createDriveClient, createDocsClient, createSheetsClient, createSlidesClient } from "./drive/client.js";
 import { createServer } from "./server.js";
 import { startStdio } from "./transport/stdio.js";
 
@@ -23,6 +23,7 @@ async function main(): Promise<void> {
     drive: createDriveClient(authClient),
     docs: createDocsClient(authClient),
     sheets: createSheetsClient(authClient),
+    slides: createSlidesClient(authClient),
   };
 
   if (config.transport === "http") {

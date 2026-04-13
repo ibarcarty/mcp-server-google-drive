@@ -18,13 +18,14 @@ This guide walks you through creating OAuth credentials in Google Cloud Console.
 
 ### 2. Enable the required APIs
 
-Go to **APIs & Services** > **Library** and enable **all three** APIs:
+Go to **APIs & Services** > **Library** and enable **all four** APIs:
 
 1. Search for **"Google Drive API"** → Click **Enable**
 2. Search for **"Google Docs API"** → Click **Enable**
 3. Search for **"Google Sheets API"** → Click **Enable**
+4. Search for **"Google Slides API"** → Click **Enable**
 
-All three are free and required for the full functionality of this MCP server.
+All four are free and required for the full functionality of this MCP server.
 
 ### 3. Configure the OAuth Consent Screen
 

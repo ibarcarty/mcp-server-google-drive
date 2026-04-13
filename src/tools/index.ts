@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient, DocsClient, SheetsClient } from "../types.js";
+import type { DriveClient, DocsClient, SheetsClient, SlidesClient } from "../types.js";
 import { registerListFilesTool } from "./list-files.js";
 import { registerSearchTool } from "./search-files.js";
 import { registerReadFileTool } from "./read-file.js";
@@ -20,12 +20,17 @@ import { registerSheetsReadTool } from "./sheets-read.js";
 import { registerSheetsWriteTool } from "./sheets-write.js";
 import { registerSheetsAppendTool } from "./sheets-append.js";
 import { registerSheetsClearTool } from "./sheets-clear.js";
+import { registerSlidesReadTool } from "./slides-read.js";
+import { registerSlidesAddSlideTool } from "./slides-add-slide.js";
+import { registerSlidesAddTextTool } from "./slides-add-text.js";
+import { registerSlidesReplaceTool } from "./slides-replace.js";
 
 export function registerAllTools(
   server: McpServer,
   drive: DriveClient,
   docs: DocsClient,
   sheets: SheetsClient,
+  slides: SlidesClient,
 ): void {
   // Drive — Read operations
   registerListFilesTool(server, drive);
@@ -56,4 +61,10 @@ export function registerAllTools(
   registerSheetsWriteTool(server, sheets);
   registerSheetsAppendTool(server, sheets);
   registerSheetsClearTool(server, sheets);
+
+  // Google Slides
+  registerSlidesReadTool(server, slides);
+  registerSlidesAddSlideTool(server, slides);
+  registerSlidesAddTextTool(server, slides);
+  registerSlidesReplaceTool(server, slides);
 }

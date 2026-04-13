@@ -1,14 +1,15 @@
 # @ibarcarty/mcp-server-google-drive
 
-A Model Context Protocol (MCP) server for Google Drive, Google Docs, and Google Sheets with **full read/write operations**. Search, read, create, edit, delete, move, copy files, edit document content, manage spreadsheet data, and control permissions — including shared drives.
+A Model Context Protocol (MCP) server for Google Drive, Google Docs, Google Sheets, and Google Slides with **full read/write operations**. Search, read, create, edit, delete, move, copy files, edit documents, manage spreadsheets, modify presentations, and control permissions — including shared drives.
 
 Built with official Google APIs (`googleapis`) and the official MCP SDK (`@modelcontextprotocol/sdk`). No third-party dependencies.
 
 ## Features
 
-- **20 tools** for complete Google Drive, Docs, and Sheets management
+- **24 tools** for complete Google Drive, Docs, Sheets, and Slides management
 - **Google Docs editing**: read, append, insert, and find & replace text directly in documents
 - **Google Sheets editing**: read, write, append rows, and clear cell ranges
+- **Google Slides editing**: read presentations, add slides, insert text, and find & replace
 - **File management**: create, read, update, delete, move, copy files and folders
 - **Permissions**: share files, list access, revoke permissions
 - **Shared drives** supported by default in all operations
@@ -27,6 +28,7 @@ Follow the [OAuth Setup Guide](docs/oauth-setup.md) to create credentials in Goo
 - Google Drive API
 - Google Docs API
 - Google Sheets API
+- Google Slides API
 
 ### 2. Install
 
@@ -122,6 +124,15 @@ See [Local Setup Guide](docs/setup-local.md) for detailed instructions.
 | `sheets_append_rows` | Append rows after the last row with data |
 | `sheets_clear_range` | Clear values in a range (formatting preserved) |
 
+### Google Slides — Presentation Editing
+
+| Tool | Description |
+|------|-------------|
+| `slides_read` | Read all slides with text content and element IDs |
+| `slides_add_slide` | Add a new slide to the presentation |
+| `slides_add_text` | Insert text into a specific shape/placeholder |
+| `slides_replace_text` | Find and replace text across all slides |
+
 ## Configuration
 
 All configuration is via environment variables. All are optional with sensible defaults.
@@ -158,7 +169,7 @@ npm run build
 
 ## OAuth Scopes
 
-This server uses `https://www.googleapis.com/auth/drive` (full Drive access) by default. This scope also covers Google Docs and Google Sheets APIs.
+This server uses `https://www.googleapis.com/auth/drive` (full Drive access) by default. This scope also covers Google Docs, Google Sheets, and Google Slides APIs.
 
 If you only need access to files created by this app, you can use the more restrictive `drive.file` scope:
 
@@ -171,6 +182,7 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 ## Limitations
 
 - Google Docs editing supports text operations (insert, append, replace). Complex formatting (tables, images, styles) requires using the raw Docs API.
+- Google Slides editing supports text operations and adding slides. Complex layout operations (positioning shapes, animations) require using the raw Slides API.
 - Export of Workspace files has a 10MB limit (Google API limitation).
 - Binary file uploads are limited to text content passed as strings. For large binary files, use Google Drive directly.
 
