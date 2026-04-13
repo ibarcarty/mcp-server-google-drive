@@ -1,0 +1,53 @@
+{
+  "name": "@ibarcarty/mcp-server-google-drive",
+  "version": "1.0.0",
+  "description": "MCP server for Google Drive with full CRUD operations, shared drive support, and Google Workspace file export",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-server-google-drive": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "dev": "tsx src/index.ts",
+    "watch": "tsc --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-drive",
+    "google-workspace",
+    "ai",
+    "tools",
+    "claude",
+    "shared-drives"
+  ],
+  "author": "Ibar Carty",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ibarcarty/mcp-server-google-drive"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "google-auth-library": "^10.6.0",
+    "googleapis": "^171.0.0",
+    "open": "^11.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.7.0"
+  }
+}
