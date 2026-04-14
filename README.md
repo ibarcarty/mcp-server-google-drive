@@ -32,7 +32,7 @@ Follow the [OAuth Setup Guide](docs/oauth-setup.md) to create credentials in Goo
 
 ### 2. Install
 
-**From npm** (when published):
+**From npm:**
 ```bash
 npx @ibarcarty/mcp-server-google-drive auth
 ```

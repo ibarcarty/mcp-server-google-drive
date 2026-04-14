@@ -1,7 +1,7 @@
 {
   "name": "@ibarcarty/mcp-server-google-drive",
-  "version": "1.0.0",
-  "description": "MCP server for Google Drive with full CRUD operations, shared drive support, and Google Workspace file export",
+  "version": "1.0.1",
+  "description": "MCP server for Google Drive, Google Docs, Google Sheets, and Google Slides with full read/write operations, shared drive support, and OAuth2 authentication",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -26,6 +26,7 @@
     "google-drive",
     "google-docs",
     "google-sheets",
+    "google-slides",
     "google-workspace",
     "ai",
     "tools",
@@ -38,6 +39,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/ibarcarty/mcp-server-google-drive"
+  },
+  "homepage": "https://github.com/ibarcarty/mcp-server-google-drive",
+  "bugs": {
+    "url": "https://github.com/ibarcarty/mcp-server-google-drive/issues"
   },
   "engines": {
     "node": ">=20.0.0"

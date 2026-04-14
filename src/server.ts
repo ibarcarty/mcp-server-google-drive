@@ -13,7 +13,7 @@ export function createServer(clients: Clients): McpServer {
   const server = new McpServer(
     {
       name: "mcp-server-google-drive",
-      version: "1.0.0",
+      version: "1.0.1",
     },
     {
       capabilities: {

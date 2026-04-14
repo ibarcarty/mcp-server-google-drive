@@ -10,7 +10,7 @@ Run the MCP server locally using stdio transport. This is the recommended setup 
 
 ## Install and Authenticate
 
-### Option A: From npm (when published)
+### Option A: From npm
 
 ```bash
 npx @ibarcarty/mcp-server-google-drive auth

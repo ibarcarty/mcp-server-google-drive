@@ -63,8 +63,8 @@ gcloud run deploy mcp-server-google-drive \
   --min-instances 0 \
   --max-instances 3 \
   --no-allow-unauthenticated \
-  --set-env-vars "GDRIVE_MCP_TRANSPORT=http" \
-  --set-secrets "GDRIVE_MCP_OAUTH_CREDENTIALS_JSON=gdrive-mcp-oauth:latest,GDRIVE_MCP_TOKENS_JSON=gdrive-mcp-tokens:latest"
+  --set-env-vars "GDRIVE_MCP_TRANSPORT=http,GDRIVE_MCP_OAUTH_PATH=/secrets/oauth-credentials.json,GDRIVE_MCP_TOKEN_PATH=/secrets/tokens.json" \
+  --set-secrets "/secrets/oauth-credentials.json=gdrive-mcp-oauth:latest,/secrets/tokens.json=gdrive-mcp-tokens:latest"
 ```
 
 ## 5. Configure Claude Code to use the remote server
@@ -81,7 +81,7 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "google-drive-remote": {
-      "url": "https://mcp-server-google-drive-XXXX-ew.a.run.app/mcp"
+      "url": "https://mcp-server-google-drive-<YOUR_ID>-ew.a.run.app/mcp"
     }
   }
 }
