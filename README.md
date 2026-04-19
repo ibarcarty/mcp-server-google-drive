@@ -258,6 +258,11 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 
 ## Changelog
 
+### v1.1.1
+
+- **Maintenance**: harden `build` script to clean `dist/` before compiling (prevents stale artifacts from previous compilations being published). Users should upgrade from v1.1.0 to this version.
+- No functional changes vs v1.1.0.
+
 ### v1.1.0
 
 - **NEW** `docs_write_markdown`: convert GitHub Flavored Markdown to native Google Docs formatting (headings, bold, italic, strikethrough, inline code, code blocks, tables, lists, links, blockquotes).

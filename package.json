@@ -1,6 +1,6 @@
 {
   "name": "@ibarcarty/mcp-server-google-drive",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server for Google Drive, Google Docs, Google Sheets, and Google Slides with full read/write operations, rich markdown-to-docs formatting, theming, shared drive support, and OAuth2 authentication",
   "type": "module",
   "main": "dist/index.js",
@@ -13,7 +13,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "node scripts/clean-dist.mjs",
+    "build": "npm run clean && tsc",
     "prepare": "npm run build",
     "dev": "tsx src/index.ts",
     "watch": "tsc --watch",
