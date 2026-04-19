@@ -16,6 +16,9 @@ import { registerDocsReadTool } from "./docs-read.js";
 import { registerDocsAppendTool } from "./docs-append.js";
 import { registerDocsInsertTool } from "./docs-insert.js";
 import { registerDocsReplaceTool } from "./docs-replace.js";
+import { registerDocsWriteMarkdownTool } from "./docs-write-markdown.js";
+import { registerDocsApplyThemeTool } from "./docs-apply-theme.js";
+import { registerDocsApplyCorporateTemplateTool } from "./docs-apply-corporate-template.js";
 import { registerSheetsReadTool } from "./sheets-read.js";
 import { registerSheetsWriteTool } from "./sheets-write.js";
 import { registerSheetsAppendTool } from "./sheets-append.js";
@@ -55,6 +58,9 @@ export function registerAllTools(
   registerDocsAppendTool(server, docs);
   registerDocsInsertTool(server, docs);
   registerDocsReplaceTool(server, docs);
+  registerDocsWriteMarkdownTool(server, docs);
+  registerDocsApplyThemeTool(server, docs);
+  registerDocsApplyCorporateTemplateTool(server, docs);
 
   // Google Sheets
   registerSheetsReadTool(server, sheets);
