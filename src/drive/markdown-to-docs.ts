@@ -159,8 +159,13 @@ function renderBlockquote(node: Blockquote, buf: Buffer): void {
 }
 
 function renderThematicBreak(_node: ThematicBreak, buf: Buffer): void {
+  // Markdown thematic breaks (`---`, `***`, `___`) render as a blank
+  // separator paragraph. We deliberately do NOT insert a line of glyphs
+  // (e.g. U+2500 box-drawing): when rendered in Google Docs that string
+  // looks like a stray decorative underline that distracts from headings,
+  // and most corporate doc styles avoid horizontal-rule decorations.
   const start = buf.text.length;
-  buf.text += "────────────────────────────────────────\n";
+  buf.text += "\n";
   const end = buf.text.length;
   buf.paragraphStyles.push({ start, end, namedStyleType: "NORMAL_TEXT" });
 }
