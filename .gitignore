@@ -1,6 +1,9 @@
 node_modules/
 dist/
-test/
+# Legacy local test scripts (carry machine-specific paths) — the tracked suite
+# lives in test/unit/ and test/smoke-live.mjs
+test/test-functional.mjs
+test/test-markdown-parser.mjs
 *.js.map
 *.d.ts.map
 

@@ -25,14 +25,29 @@ export interface SavedTokens {
   scope: string;
 }
 
+export interface FileCapabilities {
+  canEdit?: boolean;
+  canDelete?: boolean;
+  canTrash?: boolean;
+  canShare?: boolean;
+}
+
 export interface FileMetadata {
   id: string;
   name: string;
   mimeType: string;
+  createdTime?: string;
   modifiedTime?: string;
   size?: string;
   parents?: string[];
   webViewLink?: string;
+  driveId?: string;
+  trashed?: boolean;
+  capabilities?: FileCapabilities;
+  owners?: Array<{ displayName?: string; emailAddress?: string }>;
+  lastModifyingUser?: { displayName?: string };
+  shortcutDetails?: { targetId?: string; targetMimeType?: string };
+  md5Checksum?: string;
 }
 
 export interface ListFilesResult {

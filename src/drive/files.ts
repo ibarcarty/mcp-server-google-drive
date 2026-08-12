@@ -98,15 +98,42 @@ export async function getFileMetadata(
 
 // --- Read content ---
 
-export async function readFileContent(
+/** Default window per read: keeps MCP responses well below transport limits. */
+export const DEFAULT_MAX_BYTES = 200_000;
+/** Hard ceiling per read, regardless of what the caller asks for. */
+export const MAX_READ_BYTES = 2_000_000;
+
+function toBuffer(data: unknown): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (typeof data === "string") return Buffer.from(data, "utf8");
+  return Buffer.from(String(data), "utf8");
+}
+
+/**
+ * Reads a byte range of a file. Never downloads the whole file: a 90MB file
+ * fetched with alt=media and no Range crashed the stdio transport (2026-08-11),
+ * so every read goes through an explicit window.
+ */
+export async function readFileBytes(
   drive: DriveClient,
   fileId: string,
-): Promise<string> {
+  range?: { offset?: number; maxBytes?: number },
+): Promise<Buffer> {
+  const offset = Math.max(0, Math.floor(range?.offset ?? 0));
+  const maxBytes = Math.min(
+    Math.max(1, Math.floor(range?.maxBytes ?? DEFAULT_MAX_BYTES)),
+    MAX_READ_BYTES,
+  );
   const res = await drive.files.get(
     { fileId, alt: "media", supportsAllDrives: true },
-    { responseType: "text" },
+    {
+      responseType: "arraybuffer",
+      headers: { Range: `bytes=${offset}-${offset + maxBytes - 1}` },
+    },
   );
-  return res.data as string;
+  return toBuffer(res.data);
 }
 
 // --- Create ---
@@ -198,6 +225,24 @@ export async function updateFile(
 
 // --- Delete ---
 
+/**
+ * Metadata needed to delete safely. Verified live (2026-08-12): the Drive API
+ * answers 404 "File not found" — not 403 — when a non-organizer attempts a
+ * permanent delete in a shared drive, with or without supportsAllDrives, so
+ * capabilities must be checked up front.
+ */
+export async function getFileForDelete(
+  drive: DriveClient,
+  fileId: string,
+): Promise<FileMetadata> {
+  const res = await drive.files.get({
+    fileId,
+    fields: "id, name, mimeType, driveId, capabilities(canDelete, canTrash)",
+    supportsAllDrives: true,
+  });
+  return res.data as FileMetadata;
+}
+
 export async function deleteFile(
   drive: DriveClient,
   fileId: string,
@@ -206,6 +251,22 @@ export async function deleteFile(
     fileId,
     supportsAllDrives: true,
   });
+}
+
+export async function trashFile(
+  drive: DriveClient,
+  fileId: string,
+): Promise<void> {
+  await drive.files.update({
+    fileId,
+    requestBody: { trashed: true },
+    supportsAllDrives: true,
+  });
+}
+
+export function isNotFoundError(err: unknown): boolean {
+  const code = (err as { code?: number | string } | null)?.code;
+  return code === 404 || code === "404";
 }
 
 // --- Move ---
@@ -233,6 +294,67 @@ export async function moveFile(
     supportsAllDrives: true,
   });
   return res.data as FileMetadata;
+}
+
+// --- File info (extended metadata) ---
+
+const INFO_FIELDS =
+  "id, name, mimeType, size, createdTime, modifiedTime, parents, webViewLink, trashed, " +
+  "driveId, owners(displayName, emailAddress), lastModifyingUser(displayName), " +
+  "shortcutDetails(targetId, targetMimeType), capabilities(canEdit, canDelete, canTrash, canShare), md5Checksum";
+
+export interface ResolvedParent {
+  id: string;
+  name: string;
+}
+
+export interface FileInfo {
+  file: FileMetadata;
+  parents: ResolvedParent[];
+  sharedDrive?: { id: string; name: string };
+}
+
+/**
+ * Extended metadata for one item, with parents resolved to their names and
+ * the shared drive identified — the lookup that was impossible through the
+ * tool surface until v1.2.0 (defect 4).
+ */
+export async function getFileInfo(
+  drive: DriveClient,
+  fileId: string,
+): Promise<FileInfo> {
+  const res = await drive.files.get({
+    fileId,
+    fields: INFO_FIELDS,
+    supportsAllDrives: true,
+  });
+  const file = res.data as FileMetadata;
+
+  const parents: ResolvedParent[] = [];
+  for (const parentId of file.parents ?? []) {
+    try {
+      const parent = await drive.files.get({
+        fileId: parentId,
+        fields: "id, name",
+        supportsAllDrives: true,
+      });
+      parents.push({ id: parentId, name: parent.data.name ?? "(unknown)" });
+    } catch {
+      parents.push({ id: parentId, name: "(inaccessible)" });
+    }
+  }
+
+  let sharedDrive: FileInfo["sharedDrive"];
+  if (file.driveId) {
+    try {
+      const d = await drive.drives.get({ driveId: file.driveId, fields: "id, name" });
+      sharedDrive = { id: file.driveId, name: d.data.name ?? file.driveId };
+    } catch {
+      sharedDrive = { id: file.driveId, name: "(name unavailable)" };
+    }
+  }
+
+  return { file, parents, sharedDrive };
 }
 
 // --- Copy ---

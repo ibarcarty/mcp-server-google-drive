@@ -3,6 +3,7 @@ import type { DriveClient, DocsClient, SheetsClient, SlidesClient } from "../typ
 import { registerListFilesTool } from "./list-files.js";
 import { registerSearchTool } from "./search-files.js";
 import { registerReadFileTool } from "./read-file.js";
+import { registerGetFileInfoTool } from "./file-info.js";
 import { registerCreateFileTool } from "./create-file.js";
 import { registerCreateFolderTool } from "./create-folder.js";
 import { registerUpdateFileTool } from "./update-file.js";
@@ -39,6 +40,7 @@ export function registerAllTools(
   registerListFilesTool(server, drive);
   registerSearchTool(server, drive);
   registerReadFileTool(server, drive);
+  registerGetFileInfoTool(server, drive);
 
   // Drive — Write operations
   registerCreateFileTool(server, drive);
