@@ -6,7 +6,11 @@ Built with official Google APIs (`googleapis`) and the official MCP SDK (`@model
 
 ## Features
 
-- **27 tools** for complete Google Drive, Docs, Sheets, and Slides management
+- **28 tools** for complete Google Drive, Docs, Sheets, and Slides management
+- **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
+- **Office files readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) are converted to text on read via a temporary Google Workspace copy — no more lossy binary dumps
+- **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
+- **File metadata by ID** (`drive_get_file_info`): name, type, size, timestamps, parent folder resolved to its name, shared drive, owners, capabilities
 - **Rich markdown → Google Docs** (`docs_write_markdown`): headings, bold, italic, strikethrough, inline code, code blocks, tables, lists, links, blockquotes — all as native Google Docs formatting
 - **Document theming** (`docs_apply_theme`): apply a consistent visual theme (typography, colors, spacing, margins) to an entire document. Built-in `corporate` and `minimal` themes. Custom themes loadable from a JSON file via env var
 - **Corporate document templates** (`docs_apply_corporate_template`): initialize a document with title, metadata, change log, classification badge, and footer — useful for standard corporate deliverables
@@ -93,11 +97,12 @@ See [Local Setup Guide](docs/setup-local.md) for detailed instructions.
 |------|-------------|
 | `drive_list_files` | List files/folders with filtering, pagination, and sorting |
 | `drive_search` | Search by name or content (full-text search) |
-| `drive_read_file` | Read file content. Auto-exports Workspace files |
+| `drive_read_file` | Read file content by byte ranges. Auto-exports Workspace files, converts Office files to text |
+| `drive_get_file_info` | Metadata for an ID: name, size, parent folder (resolved to its name), shared drive, capabilities |
 | `drive_create_file` | Create a new file with optional content |
 | `drive_create_folder` | Create a new folder |
 | `drive_update_file` | Update file content or rename |
-| `drive_delete_file` | Permanently delete a file or folder |
+| `drive_delete_file` | Delete a file or folder (falls back to trash in shared drives when permanent delete is not permitted) |
 | `drive_move_file` | Move to a different folder |
 | `drive_copy_file` | Copy a file, optionally to a different folder |
 
@@ -235,6 +240,8 @@ git clone https://github.com/ibarcarty/mcp-server-google-drive.git
 cd mcp-server-google-drive
 npm install --ignore-scripts
 npm run build
+npm test          # unit tests (node:test via tsx, API fully mocked)
+npm run smoke     # live smoke test against the real Drive API (requires credentials; creates and removes its own fixtures)
 ```
 
 ## OAuth Scopes
@@ -255,8 +262,21 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Google Slides editing supports text operations and adding slides. Complex layout operations (positioning shapes, animations) require using the raw Slides API.
 - Export of Workspace files has a 10MB limit (Google API limitation).
 - Binary file uploads are limited to text content passed as strings. For large binary files, use Google Drive directly.
+- Binary files (PDF, images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files are the exception: they are converted to text on read.
+- `drive_read_file` returns at most 2MB per call (default window 200KB). Page through larger files with `offset`.
+- Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
 ## Changelog
+
+### v1.2.0
+
+Four defects found using the server against a large real-world Drive, all fixed test-first (17 unit tests + an 11-case live smoke suite, `test/`):
+
+- **FIX** `drive_read_file` no longer downloads files whole: reads go through byte ranges (`Range` header) with a 200KB default window and new `offset`/`maxBytes` parameters. Previously a 90MB file crashed the stdio transport (`Connection closed`). Truncated responses say exactly how to continue.
+- **FIX** `drive_read_file` converts Office files (`.docx`, `.xlsx`, `.pptx`, legacy and OpenDocument variants) to text via a temporary Google Workspace copy (always cleaned up, even on failure). Previously the raw bytes were decoded as UTF-8, producing irreversible `U+FFFD` mojibake. Binary files (PDF, images, archives) are now reported instead of dumped; binary *export formats* of Workspace files get a clear message pointing to the text formats.
+- **FIX** `drive_delete_file` handles shared drives correctly: the Drive API answers an ambiguous **404 "File not found"** (not 403) when a non-organizer attempts a permanent delete in a shared drive — verified live, with and without `supportsAllDrives`. The tool now checks `capabilities` first and falls back to moving the item to the trash with a transparent message; a genuine 404 explains both possible causes.
+- **NEW** `drive_get_file_info`: metadata for a file/folder ID — name, type, size, timestamps, parent folder resolved to its name, shared drive name, owners, capabilities, links. Previously there was no way to identify an item from its ID without listing its contents.
+- **FIX** The MCP server now announces its real version (was hardcoded to an older one).
 
 ### v1.1.1
 
