@@ -1,12 +1,13 @@
 # @ibarcarty/mcp-server-google-drive
 
-A Model Context Protocol (MCP) server for Google Drive, Google Docs, Google Sheets, and Google Slides with **full read/write operations** and **rich markdown formatting**. Search, read, create, edit, delete, move, copy files, edit documents with native formatting, manage spreadsheets, modify presentations, and control permissions — including shared drives.
+A Model Context Protocol (MCP) server for Google Drive, Google Docs, Google Sheets, Google Slides, and Google Calendar with **full read/write operations** and **rich markdown formatting**. Search, read, create, edit, delete, move, copy files, edit documents with native formatting, manage spreadsheets, modify presentations, manage calendar events, and control permissions — including shared drives.
 
 Built with official Google APIs (`googleapis`) and the official MCP SDK (`@modelcontextprotocol/sdk`).
 
 ## Features
 
-- **28 tools** for complete Google Drive, Docs, Sheets, and Slides management
+- **32 tools** for complete Google Drive, Docs, Sheets, Slides, and Calendar management
+- **Google Calendar**: list events (recurring events expanded), create timed or all-day events with recurrence (RRULE) and reminders, update, and delete. All-day end dates are inclusive (the server handles the API's exclusive convention)
 - **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
 - **Office files readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) are converted to text on read via a temporary Google Workspace copy — no more lossy binary dumps
 - **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
@@ -36,6 +37,7 @@ Follow the [OAuth Setup Guide](docs/oauth-setup.md) to create credentials in Goo
 - Google Docs API
 - Google Sheets API
 - Google Slides API
+- Google Calendar API (for the `calendar_*` tools)
 
 ### 2. Install
 
@@ -207,6 +209,15 @@ The markdown is parsed with `remark` + `remark-gfm` (CommonMark + GFM extensions
 | `slides_add_text` | Insert text into a specific shape/placeholder |
 | `slides_replace_text` | Find and replace text across all slides |
 
+### Google Calendar — Event Management
+
+| Tool | Description |
+|------|-------------|
+| `calendar_list_events` | List events in a time window (recurring events expanded into instances, ordered by start time). Returns the event IDs used by update/delete |
+| `calendar_create_event` | Create a timed or all-day event, with optional recurrence (RRULE), reminders (popup/email), location and description. Timed events default to Europe/Madrid and 1h duration; all-day end dates are inclusive |
+| `calendar_update_event` | Patch fields of an existing event (only the provided fields change) |
+| `calendar_delete_event` | Delete an event by ID (a recurring event's parent removes all instances) |
+
 ## Configuration
 
 All configuration is via environment variables. All are optional with sensible defaults.
@@ -215,7 +226,7 @@ All configuration is via environment variables. All are optional with sensible d
 |----------|---------|-------------|
 | `GDRIVE_MCP_OAUTH_PATH` | `~/.config/mcp-server-google-drive/oauth-credentials.json` | OAuth client credentials file |
 | `GDRIVE_MCP_TOKEN_PATH` | `~/.config/mcp-server-google-drive/tokens.json` | Saved tokens file |
-| `GDRIVE_MCP_SCOPES` | `https://www.googleapis.com/auth/drive` | OAuth scopes |
+| `GDRIVE_MCP_SCOPES` | `https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar` | OAuth scopes (comma-separated) |
 | `GDRIVE_MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `GDRIVE_MCP_PORT` | `8080` | HTTP port (for `http` transport) |
 | `GDRIVE_MCP_HOST` | `0.0.0.0` | HTTP bind address |
@@ -246,7 +257,9 @@ npm run smoke     # live smoke test against the real Drive API (requires credent
 
 ## OAuth Scopes
 
-This server uses `https://www.googleapis.com/auth/drive` (full Drive access) by default. This scope also covers Google Docs, Google Sheets, and Google Slides APIs.
+This server uses `https://www.googleapis.com/auth/drive` (full Drive access — also covers Google Docs, Google Sheets, and Google Slides) plus `https://www.googleapis.com/auth/calendar` (Google Calendar) by default.
+
+**Upgrading from ≤1.2.x:** tokens saved before v1.3.0 lack the calendar scope. Re-run the auth flow once (`node dist/index.js auth` or `npx @ibarcarty/mcp-server-google-drive auth`) to grant it; the `calendar_*` tools return an actionable error until then.
 
 If you only need access to files created by this app, you can use the more restrictive `drive.file` scope:
 
@@ -267,6 +280,12 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
 ## Changelog
+
+### v1.3.0
+
+- **NEW** Google Calendar support (4 tools, test-first with 13 contract tests): `calendar_list_events` (recurring events expanded via `singleEvents`, ordered by start time), `calendar_create_event` (timed or all-day; RRULE recurrence; popup/email reminders; Europe/Madrid default timezone; 1h default duration; inclusive all-day end dates converted to the API's exclusive convention), `calendar_update_event` (patch semantics), `calendar_delete_event`.
+- Default OAuth scopes now include `https://www.googleapis.com/auth/calendar`. Existing tokens keep working for Drive/Docs/Sheets/Slides; re-run the auth flow once to enable the calendar tools. A 403 for a missing scope returns an actionable message instead of a raw API error.
+- Requires the Google Calendar API to be enabled in the GCP project.
 
 ### v1.2.0
 

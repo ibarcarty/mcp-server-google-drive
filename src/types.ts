@@ -1,4 +1,4 @@
-import type { drive_v3, docs_v1, sheets_v4, slides_v1 } from "googleapis";
+import type { drive_v3, docs_v1, sheets_v4, slides_v1, calendar_v3 } from "googleapis";
 
 export interface Config {
   oauthCredentialsPath: string;
@@ -59,3 +59,4 @@ export type DriveClient = drive_v3.Drive;
 export type DocsClient = docs_v1.Docs;
 export type SheetsClient = sheets_v4.Sheets;
 export type SlidesClient = slides_v1.Slides;
+export type CalendarClient = calendar_v3.Calendar;

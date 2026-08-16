@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient, DocsClient, SheetsClient, SlidesClient } from "../types.js";
+import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient } from "../types.js";
 import { registerListFilesTool } from "./list-files.js";
 import { registerSearchTool } from "./search-files.js";
 import { registerReadFileTool } from "./read-file.js";
@@ -28,6 +28,10 @@ import { registerSlidesReadTool } from "./slides-read.js";
 import { registerSlidesAddSlideTool } from "./slides-add-slide.js";
 import { registerSlidesAddTextTool } from "./slides-add-text.js";
 import { registerSlidesReplaceTool } from "./slides-replace.js";
+import { registerCalendarListEventsTool } from "./calendar-list.js";
+import { registerCalendarCreateEventTool } from "./calendar-create.js";
+import { registerCalendarUpdateEventTool } from "./calendar-update.js";
+import { registerCalendarDeleteEventTool } from "./calendar-delete.js";
 
 export function registerAllTools(
   server: McpServer,
@@ -35,6 +39,7 @@ export function registerAllTools(
   docs: DocsClient,
   sheets: SheetsClient,
   slides: SlidesClient,
+  calendar: CalendarClient,
 ): void {
   // Drive — Read operations
   registerListFilesTool(server, drive);
@@ -75,4 +80,10 @@ export function registerAllTools(
   registerSlidesAddSlideTool(server, slides);
   registerSlidesAddTextTool(server, slides);
   registerSlidesReplaceTool(server, slides);
+
+  // Google Calendar
+  registerCalendarListEventsTool(server, calendar);
+  registerCalendarCreateEventTool(server, calendar);
+  registerCalendarUpdateEventTool(server, calendar);
+  registerCalendarDeleteEventTool(server, calendar);
 }

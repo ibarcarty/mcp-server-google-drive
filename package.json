@@ -1,7 +1,7 @@
 {
   "name": "@ibarcarty/mcp-server-google-drive",
-  "version": "1.2.0",
-  "description": "MCP server for Google Drive, Google Docs, Google Sheets, and Google Slides with full read/write operations, rich markdown-to-docs formatting, theming, shared drive support, and OAuth2 authentication",
+  "version": "1.3.0",
+  "description": "MCP server for Google Drive, Google Docs, Google Sheets, Google Slides, and Google Calendar with full read/write operations, rich markdown-to-docs formatting, theming, shared drive support, and OAuth2 authentication",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -19,7 +19,7 @@
     "dev": "tsx src/index.ts",
     "watch": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/unit/read-file.test.ts test/unit/delete-file.test.ts test/unit/file-info.test.ts",
+    "test": "tsx --test test/unit/read-file.test.ts test/unit/delete-file.test.ts test/unit/file-info.test.ts test/unit/calendar.test.ts",
     "smoke": "node test/smoke-live.mjs"
   },
   "keywords": [
@@ -30,6 +30,7 @@
     "google-docs",
     "google-sheets",
     "google-slides",
+    "google-calendar",
     "google-workspace",
     "ai",
     "tools",

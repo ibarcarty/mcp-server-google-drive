@@ -36,10 +36,13 @@ export function loadConfig(): Config {
     process.env.GDRIVE_MCP_TOKEN_PATH ??
     path.join(configDir, "tokens.json");
 
+  // Default scopes cover every tool the server ships (Drive/Docs/Sheets/Slides
+  // via the drive scope, plus Calendar since v1.3.0). Tokens issued before
+  // v1.3.0 lack the calendar scope — re-run the auth flow to grant it.
   const scopeStr =
     cliArgs["scopes"] ??
     process.env.GDRIVE_MCP_SCOPES ??
-    "https://www.googleapis.com/auth/drive";
+    "https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar";
 
   const scopes = scopeStr.includes(",") ? scopeStr.split(",").map(s => s.trim()) : [scopeStr];
 
