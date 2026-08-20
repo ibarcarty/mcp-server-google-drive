@@ -1,13 +1,14 @@
 # @ibarcarty/mcp-server-google-drive
 
-A Model Context Protocol (MCP) server for Google Drive, Google Docs, Google Sheets, Google Slides, and Google Calendar with **full read/write operations** and **rich markdown formatting**. Search, read, create, edit, delete, move, copy files, edit documents with native formatting, manage spreadsheets, modify presentations, manage calendar events, and control permissions — including shared drives.
+A Model Context Protocol (MCP) server for Google Drive, Google Docs, Google Sheets, Google Slides, Google Calendar and Gmail drafts with **full read/write operations** and **rich markdown formatting**. Search, read, create, edit, delete, move, copy files, edit documents with native formatting, manage spreadsheets, modify presentations, manage calendar events, leave Gmail drafts for human review, and control permissions — including shared drives.
 
 Built with official Google APIs (`googleapis`) and the official MCP SDK (`@modelcontextprotocol/sdk`).
 
 ## Features
 
-- **32 tools** for complete Google Drive, Docs, Sheets, Slides, and Calendar management
+- **33 tools** for complete Google Drive, Docs, Sheets, Slides, Calendar and Gmail-draft management
 - **Google Calendar**: list events (recurring events expanded), create timed or all-day events with recurrence (RRULE) and reminders, update, and delete. All-day end dates are inclusive (the server handles the API's exclusive convention)
+- **Gmail drafts — never send**: `gmail_create_draft` leaves a draft in the user's Drafts folder for human review. By design this server ships **no send capability**: the human always presses Send in Gmail
 - **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
 - **Office files readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) are converted to text on read via a temporary Google Workspace copy — no more lossy binary dumps
 - **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
@@ -218,6 +219,12 @@ The markdown is parsed with `remark` + `remark-gfm` (CommonMark + GFM extensions
 | `calendar_update_event` | Patch fields of an existing event (only the provided fields change) |
 | `calendar_delete_event` | Delete an event by ID (a recurring event's parent removes all instances) |
 
+### Gmail — Drafts only (red line: no sending)
+
+| Tool | Description |
+|------|-------------|
+| `gmail_create_draft` | Create a plain-text DRAFT (to/cc/bcc, UTF-8 safe subject and body) in the authenticated user's Drafts folder. The server **never sends email** — there is deliberately no send tool; the user reviews the draft in Gmail and presses Send themselves |
+
 ## Configuration
 
 All configuration is via environment variables. All are optional with sensible defaults.
@@ -226,7 +233,7 @@ All configuration is via environment variables. All are optional with sensible d
 |----------|---------|-------------|
 | `GDRIVE_MCP_OAUTH_PATH` | `~/.config/mcp-server-google-drive/oauth-credentials.json` | OAuth client credentials file |
 | `GDRIVE_MCP_TOKEN_PATH` | `~/.config/mcp-server-google-drive/tokens.json` | Saved tokens file |
-| `GDRIVE_MCP_SCOPES` | `https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar` | OAuth scopes (comma-separated) |
+| `GDRIVE_MCP_SCOPES` | `https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/gmail.compose` | OAuth scopes (comma-separated) |
 | `GDRIVE_MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `GDRIVE_MCP_PORT` | `8080` | HTTP port (for `http` transport) |
 | `GDRIVE_MCP_HOST` | `0.0.0.0` | HTTP bind address |
@@ -257,9 +264,11 @@ npm run smoke     # live smoke test against the real Drive API (requires credent
 
 ## OAuth Scopes
 
-This server uses `https://www.googleapis.com/auth/drive` (full Drive access — also covers Google Docs, Google Sheets, and Google Slides) plus `https://www.googleapis.com/auth/calendar` (Google Calendar) by default.
+This server uses `https://www.googleapis.com/auth/drive` (full Drive access — also covers Google Docs, Google Sheets, and Google Slides) plus `https://www.googleapis.com/auth/calendar` (Google Calendar) and `https://www.googleapis.com/auth/gmail.compose` (Gmail drafts) by default.
 
-**Upgrading from ≤1.2.x:** tokens saved before v1.3.0 lack the calendar scope. Re-run the auth flow once (`node dist/index.js auth` or `npx @ibarcarty/mcp-server-google-drive auth`) to grant it; the `calendar_*` tools return an actionable error until then.
+**About `gmail.compose`:** Google offers no drafts-only scope — `gmail.compose` technically permits sending. This server's guarantee is structural: it ships **no send tool** (nothing calls `drafts.send` or `messages.send`, enforced by contract tests). If you don't want the Gmail tools at all, set `GDRIVE_MCP_SCOPES` without `gmail.compose`.
+
+**Upgrading from ≤1.3.x:** tokens saved before an upgrade lack the newer scopes (calendar since v1.3.0, gmail.compose since v1.4.0). Re-run the auth flow once (`node dist/index.js auth` or `npx @ibarcarty/mcp-server-google-drive auth`) to grant them; the affected tools return an actionable error until then.
 
 If you only need access to files created by this app, you can use the more restrictive `drive.file` scope:
 
@@ -280,6 +289,12 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
 ## Changelog
+
+### v1.4.0
+
+- **NEW** Gmail drafts (1 tool, test-first with 7 contract tests): `gmail_create_draft` builds an RFC 2822 message (RFC 2047 UTF-8 subject encoding, base64 body, CRLF header-injection rejected) and creates a DRAFT via `users.drafts.create`.
+- **Red line by design: the server never sends email.** No send tool exists; the contract tests assert zero calls to `drafts.send`/`messages.send` in every scenario. The user reviews drafts in Gmail and sends manually.
+- Default OAuth scopes now include `https://www.googleapis.com/auth/gmail.compose`. Existing tokens keep working for everything else; re-run the auth flow once to enable the draft tool. Requires the Gmail API enabled in the GCP project.
 
 ### v1.3.0
 

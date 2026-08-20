@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
-import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient } from "../types.js";
+import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient, GmailClient } from "../types.js";
 
 export function createDriveClient(auth: OAuth2Client): DriveClient {
   return google.drive({ version: "v3", auth });
@@ -20,4 +20,8 @@ export function createSlidesClient(auth: OAuth2Client): SlidesClient {
 
 export function createCalendarClient(auth: OAuth2Client): CalendarClient {
   return google.calendar({ version: "v3", auth });
+}
+
+export function createGmailClient(auth: OAuth2Client): GmailClient {
+  return google.gmail({ version: "v1", auth });
 }

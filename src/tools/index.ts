@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient } from "../types.js";
+import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient, GmailClient } from "../types.js";
 import { registerListFilesTool } from "./list-files.js";
 import { registerSearchTool } from "./search-files.js";
 import { registerReadFileTool } from "./read-file.js";
@@ -32,6 +32,7 @@ import { registerCalendarListEventsTool } from "./calendar-list.js";
 import { registerCalendarCreateEventTool } from "./calendar-create.js";
 import { registerCalendarUpdateEventTool } from "./calendar-update.js";
 import { registerCalendarDeleteEventTool } from "./calendar-delete.js";
+import { registerGmailCreateDraftTool } from "./gmail-create-draft.js";
 
 export function registerAllTools(
   server: McpServer,
@@ -40,6 +41,7 @@ export function registerAllTools(
   sheets: SheetsClient,
   slides: SlidesClient,
   calendar: CalendarClient,
+  gmail: GmailClient,
 ): void {
   // Drive — Read operations
   registerListFilesTool(server, drive);
@@ -86,4 +88,7 @@ export function registerAllTools(
   registerCalendarCreateEventTool(server, calendar);
   registerCalendarUpdateEventTool(server, calendar);
   registerCalendarDeleteEventTool(server, calendar);
+
+  // Gmail — drafts ONLY (red line: this server never sends email)
+  registerGmailCreateDraftTool(server, gmail);
 }

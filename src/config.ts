@@ -37,12 +37,14 @@ export function loadConfig(): Config {
     path.join(configDir, "tokens.json");
 
   // Default scopes cover every tool the server ships (Drive/Docs/Sheets/Slides
-  // via the drive scope, plus Calendar since v1.3.0). Tokens issued before
-  // v1.3.0 lack the calendar scope — re-run the auth flow to grant it.
+  // via the drive scope, Calendar since v1.3.0, Gmail drafts since v1.4.0).
+  // Tokens issued before an upgrade lack the newer scopes — re-run the auth
+  // flow to grant them. Note on gmail.compose: Google offers no drafts-only
+  // scope; the server's guarantee is that it ships NO send tool (red line).
   const scopeStr =
     cliArgs["scopes"] ??
     process.env.GDRIVE_MCP_SCOPES ??
-    "https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar";
+    "https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/gmail.compose";
 
   const scopes = scopeStr.includes(",") ? scopeStr.split(",").map(s => s.trim()) : [scopeStr];
 

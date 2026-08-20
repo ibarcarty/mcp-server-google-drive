@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient } from "./types.js";
+import type { DriveClient, DocsClient, SheetsClient, SlidesClient, CalendarClient, GmailClient } from "./types.js";
 import { registerAllTools } from "./tools/index.js";
 
 // Single source of truth for the announced version (was hardcoded and stale).
@@ -12,6 +12,7 @@ export interface Clients {
   sheets: SheetsClient;
   slides: SlidesClient;
   calendar: CalendarClient;
+  gmail: GmailClient;
 }
 
 export function createServer(clients: Clients): McpServer {
@@ -34,10 +35,11 @@ export function createServer(clients: Clients): McpServer {
         "For Google Slides: use slides_read to read content, slides_add_slide to add slides, slides_add_text to write text, slides_replace_text to find & replace. " +
         "For file management: create, update, delete, move, copy files and manage permissions. " +
         "For Google Calendar: use calendar_list_events to read events (returns event IDs), calendar_create_event to create timed or all-day events with optional recurrence and reminders, calendar_update_event to patch fields, calendar_delete_event to remove events. " +
+        "For Gmail: use gmail_create_draft to leave a DRAFT in the user's Drafts folder — this server never sends email; the user reviews and sends drafts themselves. " +
         "Shared drives are included by default in all operations.",
     },
   );
 
-  registerAllTools(server, clients.drive, clients.docs, clients.sheets, clients.slides, clients.calendar);
+  registerAllTools(server, clients.drive, clients.docs, clients.sheets, clients.slides, clients.calendar, clients.gmail);
   return server;
 }
