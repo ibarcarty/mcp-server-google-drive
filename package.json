@@ -19,7 +19,7 @@
     "dev": "tsx src/index.ts",
     "watch": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/unit/read-file.test.ts test/unit/delete-file.test.ts test/unit/file-info.test.ts test/unit/calendar.test.ts test/unit/gmail.test.ts",
+    "test": "tsx --test test/unit/read-file.test.ts test/unit/pdf-inspect.test.ts test/unit/delete-file.test.ts test/unit/file-info.test.ts test/unit/calendar.test.ts test/unit/gmail.test.ts",
     "smoke": "node test/smoke-live.mjs"
   },
   "keywords": [

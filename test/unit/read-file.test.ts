@@ -170,11 +170,26 @@ describe("drive_read_file — Office conversion (defect 3)", () => {
   });
 });
 
+// Minimal real-looking PDF: a page tree with `pages` pages; text pages draw with BT…Tj, scans only paint an image.
+function pdfBytes(pages: number, kind: "text" | "scan" = "text"): Buffer {
+  const content = kind === "text" ? "BT /F1 11 Tf 56 780 Td (Factura) Tj ET" : "q 595 0 0 842 0 0 cm /Im0 Do Q";
+  return Buffer.from(
+    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+      `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count ${pages} >>\nendobj\n` +
+      "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n" +
+      `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n` +
+      "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n0\n%%EOF\n",
+    "latin1",
+  );
+}
+
 describe("drive_read_file — PDF text extraction (defect 4, found 2026-10-10)", () => {
-  it("converts a PDF via a temporary Google Doc copy, never downloads its bytes, and cleans up", async () => {
+  it("converts a PDF via a temporary Google Doc copy, never dumps its bytes, and cleans up", async () => {
+    const bytes = pdfBytes(1);
     const { drive, calls } = makeDriveMock({
       fileId: "pdf1",
-      metadata: { name: "Invoice-0001.pdf", mimeType: "application/pdf", size: "33878" },
+      metadata: { name: "Invoice-0001.pdf", mimeType: "application/pdf", size: String(bytes.length) },
+      bytes,
       copyId: "tmp-copy-pdf",
       exportText: "Invoice number AIZT4BCC-0004 VAT - Spain (21% on 90.00)",
     });
@@ -182,7 +197,8 @@ describe("drive_read_file — PDF text extraction (defect 4, found 2026-10-10)",
     const text = textOf(result);
 
     assert.ok(!result.isError, text);
-    assert.equal(calls.mediaGets.length, 0, "the PDF bytes must never be downloaded");
+    assert.equal(calls.mediaGets.length, 1, "downloaded once, only for local inspection");
+    assert.doesNotMatch(text, /%PDF|endstream/, "raw PDF bytes must never reach the response");
     assert.equal(calls.copies.length, 1, "one conversion copy");
     const copyBody = calls.copies[0].requestBody as Record<string, unknown>;
     assert.equal(copyBody.mimeType, GDOC_MIME, "copy must request Google Doc conversion");
@@ -224,6 +240,80 @@ describe("drive_read_file — PDF text extraction (defect 4, found 2026-10-10)",
     assert.equal(calls.mediaGets.length, 0, "the PDF bytes must never be downloaded");
     assert.match(text, /binary/i);
     assert.match(text, /application\/pdf/);
+  });
+});
+
+describe("drive_read_file — PDF completeness and origin notices (defect 5, found 2026-10-10)", () => {
+  function pdfMock(fileId: string, bytes: Buffer, extra: Record<string, unknown> = {}) {
+    return makeDriveMock({
+      fileId,
+      metadata: { name: `${fileId}.pdf`, mimeType: "application/pdf", size: String(bytes.length), ...extra },
+      bytes,
+      copyId: `tmp-${fileId}`,
+      exportText: "Base imponible 1.234,56 €",
+    });
+  }
+
+  it("warns at the top when the PDF is longer than the 80 pages Drive converts", async () => {
+    const { drive } = pdfMock("long", pdfBytes(120));
+    const text = textOf(await handlerFor(drive)({ fileId: "long" }));
+
+    assert.match(text, /INCOMPLETE TEXT/);
+    assert.match(text, /120 pages/);
+    assert.match(text, /Pages 81-120 are NOT included/);
+    assert.ok(text.indexOf("INCOMPLETE TEXT") < text.indexOf("---"), "the warning must come before the content");
+    assert.match(text, /1\.234,56/, "the converted text is still returned");
+  });
+
+  it("confirms the page count when every page was converted", async () => {
+    const { drive } = pdfMock("short", pdfBytes(80));
+    const text = textOf(await handlerFor(drive)({ fileId: "short" }));
+
+    assert.match(text, /Pages: 80 \(all converted\)/);
+    assert.doesNotMatch(text, /INCOMPLETE|could not be verified|optical recognition/);
+  });
+
+  it("flags scans: the text comes from optical recognition and look-alike characters can be swapped", async () => {
+    const { drive } = pdfMock("scan", pdfBytes(2, "scan"));
+    const text = textOf(await handlerFor(drive)({ fileId: "scan" }));
+
+    assert.match(text, /optical recognition/);
+    assert.match(text, /O\/0/);
+    assert.match(text, /verify critical figures against the original/);
+  });
+
+  it("says the page count could not be verified when the structure is unreadable", async () => {
+    const { drive } = pdfMock("odd", Buffer.from("%PDF-1.7\n\x00\x01 unreadable\n", "latin1"));
+    const text = textOf(await handlerFor(drive)({ fileId: "odd" }));
+
+    assert.match(text, /Page count could not be verified/);
+    assert.match(text, /first 80 pages/);
+  });
+
+  it("does not download PDFs above the inspection cap, and says the count is unverified", async () => {
+    const { drive, calls } = pdfMock("huge", pdfBytes(3), { size: String(200 * 1024 * 1024) });
+    const text = textOf(await handlerFor(drive)({ fileId: "huge" }));
+
+    assert.equal(calls.mediaGets.length, 0, "a 200 MB PDF must not be downloaded for inspection");
+    assert.match(text, /Page count could not be verified/);
+  });
+
+  it("explains a conversion failure in plain terms and still cleans up", async () => {
+    const { drive, calls } = makeDriveMock({
+      fileId: "broken",
+      metadata: { name: "broken.pdf", mimeType: "application/pdf", size: "40" },
+      bytes: Buffer.from("%PDF-1.4\ngarbage\n", "latin1"),
+      copyId: "tmp-broken",
+      exportError: makeApiError(400, "Bad Request"),
+    });
+    const result = await handlerFor(drive)({ fileId: "broken" });
+    const text = textOf(result);
+
+    assert.equal(result.isError, true);
+    assert.match(text, /could not convert this PDF/);
+    assert.match(text, /damaged, password-protected/);
+    assert.match(text, /Bad Request/, "the original Drive error is kept for diagnosis");
+    assert.equal(calls.deletes.length, 1);
   });
 });
 

@@ -30,6 +30,10 @@ const OFFICE_IMPORT_TARGETS: Record<string, string> = {
   "application/pdf": GOOGLE_DOC,
 };
 
+// Measured 2026-10-10 (live smoke, text and scanned PDFs): a PDF copied as a Google
+// Doc keeps only its first 80 pages; page 81 onwards is dropped WITHOUT any error.
+export const DRIVE_PDF_PAGE_LIMIT = 80;
+
 // Converted Docs keep their pictures (a logo, or every page of a scanned PDF)
 // as base64 data-URI reference definitions in the markdown export: megabytes
 // of noise that would drown the text (found in the live smoke, 2026-10-10).

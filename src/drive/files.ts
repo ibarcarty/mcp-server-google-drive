@@ -136,6 +136,15 @@ export async function readFileBytes(
   return toBuffer(res.data);
 }
 
+/** Downloads a whole file for local processing. Callers must cap the size first (metadata.size). */
+export async function downloadWholeFile(drive: DriveClient, fileId: string): Promise<Buffer> {
+  const res = await drive.files.get(
+    { fileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" },
+  );
+  return toBuffer(res.data);
+}
+
 // --- Create ---
 
 export async function createFile(
