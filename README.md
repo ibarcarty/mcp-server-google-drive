@@ -11,6 +11,7 @@ Built with official Google APIs (`googleapis`) and the official MCP SDK (`@model
 - **Gmail drafts — never send**: `gmail_create_draft` leaves a draft in the user's Drafts folder for human review. By design this server ships **no send capability**: the human always presses Send in Gmail
 - **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
 - **Office files and PDFs readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) and PDFs are converted to text on read via a temporary Google Workspace copy (PDFs through Drive text recognition) — no more lossy binary dumps
+- **PDF completeness checked, never assumed**: each PDF is inspected locally first. The response states its real page count, warns in the first lines when Drive's 80-page conversion limit cut the text (naming the missing pages), and flags scanned PDFs whose text comes from optical recognition
 - **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
 - **File metadata by ID** (`drive_get_file_info`): name, type, size, timestamps, parent folder resolved to its name, shared drive, owners, capabilities
 - **Rich markdown → Google Docs** (`docs_write_markdown`): headings, bold, italic, strikethrough, inline code, code blocks, tables, lists, links, blockquotes — all as native Google Docs formatting
@@ -284,7 +285,9 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Google Slides editing supports text operations and adding slides. Complex layout operations (positioning shapes, animations) require using the raw Slides API.
 - Export of Workspace files has a 10MB limit (Google API limitation).
 - Binary file uploads are limited to text content passed as strings. For large binary files, use Google Drive directly.
-- Binary files (images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files and PDFs are the exception: they are converted to text on read. PDF conversion relies on Drive text recognition, so layout (columns, tables) may be flattened and very large or image-heavy PDFs can fail or come back partial.
+- Binary files (images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files and PDFs are the exception: they are converted to text on read.
+- **PDF: Drive converts only the first 80 pages** (measured 2026-10-10; page 81 onwards is dropped by Drive without any error). The tool detects it and starts the response with `⚠ INCOMPLETE TEXT … Pages 81-N are NOT included`. When the page count cannot be verified (encrypted or unusual files, or larger than 50 MB) the response says so instead of guessing.
+- **PDF: scans** (pages without a text layer) go through optical recognition. Digits are usually exact, but look-alike characters in codes (O/0, l/1/I, S/5) can be swapped; the response says so. Layout (columns, tables) is flattened to reading order.
 - `drive_read_file` returns at most 2MB per call (default window 200KB). Page through larger files with `offset`.
 - Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
@@ -294,7 +297,10 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 
 - **NEW** `drive_read_file` reads PDFs: the file is copied as a Google Doc (Drive text recognition), exported as text and the temporary copy is deleted, the same path as Office files. The PDF bytes are never downloaded. `convertOffice: false` keeps the previous behaviour (binary notice).
 - **FIX** Converted Office files and PDFs no longer carry their pictures as base64 data URIs (a logo, or every page of a scanned PDF): the image definitions are dropped and the response says how many were omitted. Found in the live smoke against a real invoice.
-- Test-first: 3 new contract tests; the binary-safety contract now uses a ZIP fixture. Live smoke: a real invoice PDF read end to end, no temporary copy left behind.
+- **FIX (found in the live smoke)** Drive silently keeps only the first 80 pages of a converted PDF. New local inspector (`src/drive/pdf-inspect.ts`, no PDF library): follows the document's own chain (trailer `/Root` → catalog → `/Pages` → `/Count`, latest revision, compressed object streams included) and detects whether any page draws text. The response now starts with `Pages: N (all converted)`, or an `INCOMPLETE TEXT` warning, or an "unverified" warning — never a guessed count. Scans get an optical-recognition note.
+- Conversion failures explain the likely cause (damaged, password-protected, not a real PDF) and keep Drive's original message.
+- Hardening: decompression capped at 32 MB per stream (zip bombs), bounded scans for hostile files, no download above 50 MB.
+- Validation: 66 unit tests (test-first); live against Drive with 13 real invoices/forms and 9 synthetic edge cases (30/80/81/120 pages, dense text, scans of 1/6/12 pages, damaged file); page count equal to pdftotext on 112 assorted local PDFs.
 
 ### v1.4.0
 
