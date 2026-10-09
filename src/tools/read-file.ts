@@ -25,7 +25,7 @@ const inputSchema = {
   maxBytes: z.number().int().min(1).max(MAX_READ_BYTES).optional()
     .describe(`Maximum bytes to return per call (regular files only). Default ${DEFAULT_MAX_BYTES}, hard cap ${MAX_READ_BYTES}. Large files are never downloaded whole.`),
   convertOffice: z.boolean().optional()
-    .describe("Convert Office files (.docx/.xlsx/.pptx and legacy/OpenDocument variants) to text via a temporary Google Workspace copy. Default true. Set false to skip conversion and get file info instead."),
+    .describe("Convert Office files (.docx/.xlsx/.pptx and legacy/OpenDocument variants) and PDFs to text via a temporary Google Workspace copy (PDFs go through Drive text recognition). Default true. Set false to skip conversion and get file info instead."),
 };
 
 function baseHeader(metadata: FileMetadata): string {
@@ -50,7 +50,7 @@ function ok(text: string) {
 export function registerReadFileTool(server: McpServer, drive: DriveClient): void {
   server.tool(
     "drive_read_file",
-    "Read the content of a file from Google Drive. Exports Google Workspace files (Docs to Markdown, Sheets to CSV, Slides to plain text), converts Office files (.docx/.xlsx/.pptx) to text via a temporary Google copy, and reads regular text files by byte ranges (offset/maxBytes) so large files never overflow the response. Binary files are reported, never dumped.",
+    "Read the content of a file from Google Drive. Exports Google Workspace files (Docs to Markdown, Sheets to CSV, Slides to plain text), converts Office files (.docx/.xlsx/.pptx) and PDFs to text via a temporary Google copy, and reads regular text files by byte ranges (offset/maxBytes) so large files never overflow the response. Binary files are reported, never dumped.",
     inputSchema,
     async (args) => {
       try {
@@ -78,12 +78,15 @@ export function registerReadFileTool(server: McpServer, drive: DriveClient): voi
           );
         }
 
-        // 2. Office files: convert via temporary Google Workspace copy
+        // 2. Office files and PDFs: convert via temporary Google Workspace copy
         if (officeImportTarget(metadata.mimeType) && args.convertOffice !== false) {
           const result = await convertOfficeFile(drive, args.fileId, metadata.mimeType, args.exportFormat);
           const warning = result.cleanupWarning ? `${result.cleanupWarning}\n` : "";
+          const source = metadata.mimeType.toLowerCase() === "application/pdf"
+            ? "PDF (Drive text recognition)"
+            : "Office format";
           return ok(
-            `${header}Converted from Office format via a temporary Google Workspace copy (exported as ${result.exportMime}).\n${warning}---\n${result.content}`,
+            `${header}Converted from ${source} via a temporary Google Workspace copy (exported as ${result.exportMime}).\n${warning}---\n${result.content}`,
           );
         }
 

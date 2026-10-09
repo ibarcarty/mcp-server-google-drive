@@ -170,24 +170,82 @@ describe("drive_read_file — Office conversion (defect 3)", () => {
   });
 });
 
-describe("drive_read_file — binary safety", () => {
-  it("never dumps a known binary file as mojibake", async () => {
-    const bytes = Buffer.concat([
-      Buffer.from("%PDF-1.7"),
-      Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x80, 0x81]),
-    ]);
+describe("drive_read_file — PDF text extraction (defect 4, found 2026-10-10)", () => {
+  it("converts a PDF via a temporary Google Doc copy, never downloads its bytes, and cleans up", async () => {
     const { drive, calls } = makeDriveMock({
       fileId: "pdf1",
-      metadata: { name: "doc.pdf", mimeType: "application/pdf", size: String(bytes.length) },
-      bytes,
+      metadata: { name: "Invoice-0001.pdf", mimeType: "application/pdf", size: "33878" },
+      copyId: "tmp-copy-pdf",
+      exportText: "Invoice number AIZT4BCC-0004 VAT - Spain (21% on 90.00)",
     });
     const result = await handlerFor(drive)({ fileId: "pdf1" });
     const text = textOf(result);
 
     assert.ok(!result.isError, text);
-    assert.equal(calls.mediaGets.length, 0, "known binary types must not be downloaded at all");
-    assert.match(text, /binary/i, "response must say the content is binary");
+    assert.equal(calls.mediaGets.length, 0, "the PDF bytes must never be downloaded");
+    assert.equal(calls.copies.length, 1, "one conversion copy");
+    const copyBody = calls.copies[0].requestBody as Record<string, unknown>;
+    assert.equal(copyBody.mimeType, GDOC_MIME, "copy must request Google Doc conversion");
+    assert.equal(calls.exports[0].fileId, "tmp-copy-pdf");
+    assert.equal(calls.deletes.length, 1, "temporary copy must be deleted");
+    assert.equal(calls.deletes[0].fileId, "tmp-copy-pdf");
+    assert.match(text, /AIZT4BCC-0004/);
+    assert.match(text, /PDF/, "response must say the text comes from a PDF conversion");
+    assert.doesNotMatch(text, /Office format/, "a PDF is not an Office file");
+  });
+
+  it("omits embedded base64 images from the converted text and says how many", async () => {
+    const base64 = "iVBORw0KGgo" + "A".repeat(50_000);
+    const { drive } = makeDriveMock({
+      fileId: "pdf3",
+      metadata: { name: "scan.pdf", mimeType: "application/pdf", size: "900000" },
+      exportText: `**Invoice** total 108.90\n![][image1]\n![][image2]\n\n[image1]: <data:image/png;base64,${base64}>\n[image2]: <data:image/jpeg;base64,${base64}>`,
+    });
+    const result = await handlerFor(drive)({ fileId: "pdf3" });
+    const text = textOf(result);
+
+    assert.ok(!result.isError, text);
+    assert.match(text, /total 108\.90/, "the real text survives");
+    assert.doesNotMatch(text, /base64/, "no embedded image data in the response");
+    assert.match(text, /2 embedded image\(s\) omitted/);
+    assert.ok(text.length < 2_000, "the response must not carry the image payload");
+  });
+
+  it("with convertOffice=false reports the PDF as binary without copying or downloading it", async () => {
+    const { drive, calls } = makeDriveMock({
+      fileId: "pdf2",
+      metadata: { name: "scan.pdf", mimeType: "application/pdf", size: "4096" },
+    });
+    const result = await handlerFor(drive)({ fileId: "pdf2", convertOffice: false });
+    const text = textOf(result);
+
+    assert.ok(!result.isError, text);
+    assert.equal(calls.copies.length, 0, "no conversion copy when conversion is disabled");
+    assert.equal(calls.mediaGets.length, 0, "the PDF bytes must never be downloaded");
+    assert.match(text, /binary/i);
     assert.match(text, /application\/pdf/);
+  });
+});
+
+describe("drive_read_file — binary safety", () => {
+  it("never dumps a known binary file as mojibake", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from("PK\x03\x04"),
+      Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x80, 0x81]),
+    ]);
+    const { drive, calls } = makeDriveMock({
+      fileId: "zip1",
+      metadata: { name: "archive.zip", mimeType: "application/zip", size: String(bytes.length) },
+      bytes,
+    });
+    const result = await handlerFor(drive)({ fileId: "zip1" });
+    const text = textOf(result);
+
+    assert.ok(!result.isError, text);
+    assert.equal(calls.mediaGets.length, 0, "known binary types must not be downloaded at all");
+    assert.equal(calls.copies.length, 0, "non-convertible binaries must not be copied");
+    assert.match(text, /binary/i, "response must say the content is binary");
+    assert.match(text, /application\/zip/);
     assert.doesNotMatch(text, /�/);
   });
 

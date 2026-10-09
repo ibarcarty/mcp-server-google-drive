@@ -10,7 +10,7 @@ Built with official Google APIs (`googleapis`) and the official MCP SDK (`@model
 - **Google Calendar**: list events (recurring events expanded), create timed or all-day events with recurrence (RRULE) and reminders, update, and delete. All-day end dates are inclusive (the server handles the API's exclusive convention)
 - **Gmail drafts — never send**: `gmail_create_draft` leaves a draft in the user's Drafts folder for human review. By design this server ships **no send capability**: the human always presses Send in Gmail
 - **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
-- **Office files readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) are converted to text on read via a temporary Google Workspace copy — no more lossy binary dumps
+- **Office files and PDFs readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) and PDFs are converted to text on read via a temporary Google Workspace copy (PDFs through Drive text recognition) — no more lossy binary dumps
 - **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
 - **File metadata by ID** (`drive_get_file_info`): name, type, size, timestamps, parent folder resolved to its name, shared drive, owners, capabilities
 - **Rich markdown → Google Docs** (`docs_write_markdown`): headings, bold, italic, strikethrough, inline code, code blocks, tables, lists, links, blockquotes — all as native Google Docs formatting
@@ -100,7 +100,7 @@ See [Local Setup Guide](docs/setup-local.md) for detailed instructions.
 |------|-------------|
 | `drive_list_files` | List files/folders with filtering, pagination, and sorting |
 | `drive_search` | Search by name or content (full-text search) |
-| `drive_read_file` | Read file content by byte ranges. Auto-exports Workspace files, converts Office files to text |
+| `drive_read_file` | Read file content by byte ranges. Auto-exports Workspace files, converts Office files and PDFs to text |
 | `drive_get_file_info` | Metadata for an ID: name, size, parent folder (resolved to its name), shared drive, capabilities |
 | `drive_create_file` | Create a new file with optional content |
 | `drive_create_folder` | Create a new folder |
@@ -284,11 +284,17 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Google Slides editing supports text operations and adding slides. Complex layout operations (positioning shapes, animations) require using the raw Slides API.
 - Export of Workspace files has a 10MB limit (Google API limitation).
 - Binary file uploads are limited to text content passed as strings. For large binary files, use Google Drive directly.
-- Binary files (PDF, images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files are the exception: they are converted to text on read.
+- Binary files (images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files and PDFs are the exception: they are converted to text on read. PDF conversion relies on Drive text recognition, so layout (columns, tables) may be flattened and very large or image-heavy PDFs can fail or come back partial.
 - `drive_read_file` returns at most 2MB per call (default window 200KB). Page through larger files with `offset`.
 - Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
 ## Changelog
+
+### v1.5.0
+
+- **NEW** `drive_read_file` reads PDFs: the file is copied as a Google Doc (Drive text recognition), exported as text and the temporary copy is deleted, the same path as Office files. The PDF bytes are never downloaded. `convertOffice: false` keeps the previous behaviour (binary notice).
+- **FIX** Converted Office files and PDFs no longer carry their pictures as base64 data URIs (a logo, or every page of a scanned PDF): the image definitions are dropped and the response says how many were omitted. Found in the live smoke against a real invoice.
+- Test-first: 3 new contract tests; the binary-safety contract now uses a ZIP fixture. Live smoke: a real invoice PDF read end to end, no temporary copy left behind.
 
 ### v1.4.0
 
