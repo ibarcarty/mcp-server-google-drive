@@ -11,7 +11,8 @@ Built with official Google APIs (`googleapis`) and the official MCP SDK (`@model
 - **Gmail drafts — never send**: `gmail_create_draft` leaves a draft in the user's Drafts folder for human review. By design this server ships **no send capability**: the human always presses Send in Gmail
 - **Safe reads for any size**: regular files are read by byte ranges (`offset`/`maxBytes`) — a 90MB file no longer kills the transport, you page through it
 - **Office files and PDFs readable**: `.docx`/`.xlsx`/`.pptx` (and legacy/OpenDocument variants) and PDFs are converted to text on read via a temporary Google Workspace copy (PDFs through Drive text recognition) — no more lossy binary dumps
-- **PDF completeness checked, never assumed**: each PDF is inspected locally first. The response states its real page count, warns in the first lines when Drive's 80-page conversion limit cut the text (naming the missing pages), and flags scanned PDFs whose text comes from optical recognition
+- **PDF completeness checked, never assumed**: each PDF is inspected locally first. The response states its real page count, warns in the first lines when Drive's 80-page conversion limit cut the text (naming the missing pages), says when the count could not be verified instead of guessing, and flags scanned pages whose text comes from optical recognition
+- **Long documents in windows**: converted text is returned 60 000 characters at a time (`offset` / `maxBytes`), every window from the same conversion
 - **Shared-drive-aware deletes**: when permanent deletion is not permitted (non-organizer in a shared drive), the file is moved to trash with a clear explanation instead of a misleading `File not found`
 - **File metadata by ID** (`drive_get_file_info`): name, type, size, timestamps, parent folder resolved to its name, shared drive, owners, capabilities
 - **Rich markdown → Google Docs** (`docs_write_markdown`): headings, bold, italic, strikethrough, inline code, code blocks, tables, lists, links, blockquotes — all as native Google Docs formatting
@@ -287,7 +288,9 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 - Binary file uploads are limited to text content passed as strings. For large binary files, use Google Drive directly.
 - Binary files (images, archives…) are reported with their metadata but not returned inline — decoding them as text would be lossy. Office files and PDFs are the exception: they are converted to text on read.
 - **PDF: Drive converts only the first 80 pages** (measured 2026-10-10; page 81 onwards is dropped by Drive without any error). The tool detects it and starts the response with `⚠ INCOMPLETE TEXT … Pages 81-N are NOT included`. When the page count cannot be verified (encrypted or unusual files, or larger than 50 MB) the response says so instead of guessing.
-- **PDF: scans** (pages without a text layer) go through optical recognition. Digits are usually exact, but look-alike characters in codes (O/0, l/1/I, S/5) can be swapped; the response says so. Layout (columns, tables) is flattened to reading order.
+- **PDF: scans** go through Drive's optical recognition. Measured 2026-10-10: it swapped look-alike characters in codes (`0O8B 1l7I` → `008B 1171`) and, in 1 of 7 runs of the same 6-page scan, returned only 3 of the 6 pages with no error. Drive's converted document keeps no page boundaries, so missing pages of a scan cannot be detected: whenever a PDF has no text layer, or carries page-sized images, the response says so and asks to check every page and every critical figure against the original.
+- **PDF: layout** (columns, tables) is flattened to reading order.
+- **PDF inspection** reads the file structure without a PDF library. When anything that could change the page count cannot be read (an undecodable object stream, an indirect `/Count`, a file above 50 MB) the count is reported as unverified rather than guessed.
 - `drive_read_file` returns at most 2MB per call (default window 200KB). Page through larger files with `offset`.
 - Reading a byte range of a UTF-8 text file may split a multibyte character at the window boundaries.
 
@@ -295,12 +298,15 @@ GDRIVE_MCP_SCOPES=https://www.googleapis.com/auth/drive.file npx @ibarcarty/mcp-
 
 ### v1.5.0
 
-- **NEW** `drive_read_file` reads PDFs: the file is copied as a Google Doc (Drive text recognition), exported as text and the temporary copy is deleted, the same path as Office files. The PDF bytes are never downloaded. `convertOffice: false` keeps the previous behaviour (binary notice).
-- **FIX** Converted Office files and PDFs no longer carry their pictures as base64 data URIs (a logo, or every page of a scanned PDF): the image definitions are dropped and the response says how many were omitted. Found in the live smoke against a real invoice.
-- **FIX (found in the live smoke)** Drive silently keeps only the first 80 pages of a converted PDF. New local inspector (`src/drive/pdf-inspect.ts`, no PDF library): follows the document's own chain (trailer `/Root` → catalog → `/Pages` → `/Count`, latest revision, compressed object streams included) and detects whether any page draws text. The response now starts with `Pages: N (all converted)`, or an `INCOMPLETE TEXT` warning, or an "unverified" warning — never a guessed count. Scans get an optical-recognition note.
-- Conversion failures explain the likely cause (damaged, password-protected, not a real PDF) and keep Drive's original message.
-- Hardening: decompression capped at 32 MB per stream (zip bombs), bounded scans for hostile files, no download above 50 MB.
-- Validation: 66 unit tests (test-first); live against Drive with 13 real invoices/forms and 9 synthetic edge cases (30/80/81/120 pages, dense text, scans of 1/6/12 pages, damaged file); page count equal to pdftotext on 112 assorted local PDFs.
+- **NEW** `drive_read_file` reads PDFs: the file is copied as a Google Doc (Drive text recognition), exported as text and the temporary copy is deleted, the same path as Office files. The PDF is downloaded once (up to 50 MB) only for local inspection; its bytes never reach the response. `convertOffice: false` keeps the previous behaviour (binary notice).
+- **FIX (live smoke)** Drive silently keeps only the first 80 pages of a converted PDF. New local inspector (`src/drive/pdf-inspect.ts`, no PDF library): follows the document's own chain (trailer `/Root` → catalog → `/Pages` → `/Count`, latest revision, compressed object streams included), ignores anything inside stream data (attached PDFs), skips strings and comments, and returns "unverified" whenever something that could change the answer cannot be read. The response starts with `Pages: N — within the 80 pages Google Drive converts.`, an `INCOMPLETE TEXT` warning naming the missing pages, or the reason the count could not be verified.
+- **FIX** Scan detection: a note when no page draws text, and also when page-sized images sit next to some typed text (scanned pages with a typed footer or signature). The note lists the measured recognition risks, including dropped pages.
+- **FIX** A warning when Drive returns no text at all for a PDF.
+- **FIX** Embedded images (markdown and HTML exports) are dropped and counted; the pattern can never cross lines, so OCR lines starting with `[` are kept.
+- **NEW** Converted text is returned in windows of 60 000 characters (`offset` / `maxBytes`), served from one cached conversion per file revision (10 minutes) so windows always fit together.
+- Conversion failures keep Drive's message and list the possible causes (damaged or password-protected file, full Drive, 10 MB export limit); a binary `exportFormat` is rejected before anything is downloaded.
+- Hardening: decompression capped at 32 MB per stream and 128 MB per file; images, fonts and attachments are never decompressed; bounded scans keep hostile files fast (measured: a 10.5 MB crafted file from 29 s to 20 ms, a memory bomb from 4 GB to 118 MB).
+- Validation: 88 unit tests (test-first); an independent adversarial review (its 15 findings reproduced and fixed or documented); live against Drive with 13 real invoices/forms and 9 synthetic edge cases; page count equal to pdftotext on 112 assorted local PDFs and on every reviewer reproduction (or reported as unverified).
 
 ### v1.4.0
 

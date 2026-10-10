@@ -15,22 +15,29 @@ import {
   getAvailableFormats,
 } from "../drive/export.js";
 import { isTextualMime, isKnownBinaryMime, looksBinary } from "../drive/content-type.js";
-import { officeImportTarget, convertOfficeFile, DRIVE_PDF_PAGE_LIMIT } from "../drive/office.js";
+import { officeImportTarget, convertOfficeFile, conversionExportMime, DRIVE_PDF_PAGE_LIMIT } from "../drive/office.js";
 import { inspectPdf, type PdfInspection } from "../drive/pdf-inspect.js";
 
 const PDF_MIME = "application/pdf";
 // PDFs above this size are not downloaded for inspection (the count is reported as unverified).
 const MAX_PDF_INSPECT_BYTES = 50 * 1024 * 1024;
-const UNKNOWN_PDF: PdfInspection = { pageCount: null, hasTextLayer: null };
+// Converted Office/PDF text is returned in windows of this many characters (long contracts
+// would otherwise exceed what an MCP client accepts in one response).
+const CONVERTED_WINDOW_CHARS = 60_000;
+// Windows of one document must come from ONE conversion: Drive's text recognition can return
+// different text on different runs, and offsets into different texts would skip or repeat text.
+const CONVERSION_CACHE_TTL_MS = 10 * 60 * 1000;
+const CONVERSION_CACHE_MAX_ENTRIES = 8;
+const UNKNOWN_PDF: PdfInspection = { pageCount: null, hasTextLayer: null, hasPageImages: false };
 
 const inputSchema = {
   fileId: z.string().describe("The ID of the file to read."),
   exportFormat: z.enum(["markdown", "text", "html", "pdf", "csv", "tsv", "xlsx", "docx", "png", "svg"]).optional()
     .describe("Export format for Google Workspace files (and for Office files converted on read). Defaults: Docs→markdown, Sheets→csv, Slides→text. Binary formats (pdf, xlsx, docx, png) cannot be returned inline."),
   offset: z.number().int().min(0).optional()
-    .describe("Byte offset to start reading from (regular files only). Use it to page through large files."),
+    .describe("Where to start reading: a byte offset for regular files, a character offset in the converted text for Office files and PDFs. Use it to page through large files."),
   maxBytes: z.number().int().min(1).max(MAX_READ_BYTES).optional()
-    .describe(`Maximum bytes to return per call (regular files only). Default ${DEFAULT_MAX_BYTES}, hard cap ${MAX_READ_BYTES}. Large files are never downloaded whole.`),
+    .describe(`Maximum bytes (regular files; default ${DEFAULT_MAX_BYTES}) or characters of converted text (Office files and PDFs; default ${CONVERTED_WINDOW_CHARS}) to return per call. Hard cap ${MAX_READ_BYTES}.`),
   convertOffice: z.boolean().optional()
     .describe("Convert Office files (.docx/.xlsx/.pptx and legacy/OpenDocument variants) and PDFs to text via a temporary Google Workspace copy (PDFs go through Drive text recognition). Default true. Set false to skip conversion and get file info instead."),
 };
@@ -50,22 +57,52 @@ function binaryNotice(metadata: FileMetadata, detail: string): string {
   );
 }
 
-async function inspectDrivePdf(drive: DriveClient, metadata: FileMetadata): Promise<PdfInspection> {
-  const size = Number(metadata.size);
-  if (!Number.isFinite(size) || size > MAX_PDF_INSPECT_BYTES) return UNKNOWN_PDF;
-  try {
-    return inspectPdf(await downloadWholeFile(drive, metadata.id));
-  } catch {
-    return UNKNOWN_PDF;
+interface PdfCheck {
+  inspection: PdfInspection;
+  /** Why the page count could not be established, in words for the reader. */
+  unverifiedReason?: string;
+}
+
+async function inspectDrivePdf(drive: DriveClient, metadata: FileMetadata): Promise<PdfCheck> {
+  const size = metadata.size === undefined || metadata.size === null || metadata.size === "" ? Number.NaN : Number(metadata.size);
+  if (!Number.isFinite(size)) return { inspection: UNKNOWN_PDF, unverifiedReason: "Drive did not report the file size" };
+  if (size > MAX_PDF_INSPECT_BYTES) {
+    return { inspection: UNKNOWN_PDF, unverifiedReason: `the file is larger than ${MAX_PDF_INSPECT_BYTES / 1024 / 1024} MB` };
   }
+  let bytes: Buffer;
+  try {
+    bytes = await downloadWholeFile(drive, metadata.id);
+  } catch {
+    return { inspection: UNKNOWN_PDF, unverifiedReason: "the file could not be downloaded for inspection" };
+  }
+  const inspection = inspectPdf(bytes);
+  return inspection.pageCount === null
+    ? { inspection, unverifiedReason: "its structure could not be read with certainty (encrypted, damaged or unusual file)" }
+    : { inspection };
+}
+
+// Measured 2026-10-10: Drive's recognition swapped look-alikes in codes ("0O8B 1l7I" -> "008B 1171")
+// and, in 1 of 7 runs of the same 6-page scan, returned only pages 3, 5 and 6 with no error.
+const OCR_RISKS =
+  "It can swap look-alike characters in codes (O/0, l/1/I, S/5), misread amounts and decimal separators, " +
+  "and occasionally drop whole pages without any error: check that every page is present and verify every " +
+  "critical figure against the original.";
+
+/** True when the converted text has no words at all (only whitespace, image references or the omission note). */
+function hasNoText(content: string): boolean {
+  return content
+    .replace(/!\[[^\]\n]*\]\[[^\]\n]*\]/g, "")
+    .replace(/\(\d+ embedded image\(s\) omitted\)/g, "")
+    .trim().length === 0;
 }
 
 /** Completeness and origin notices shown BEFORE the converted text of a PDF. */
-function pdfNotices({ pageCount, hasTextLayer }: PdfInspection): string {
+function pdfNotices({ inspection, unverifiedReason }: PdfCheck, content: string): string {
+  const { pageCount, hasTextLayer, hasPageImages } = inspection;
   const lines: string[] = [];
   if (pageCount === null) {
     lines.push(
-      `⚠ Page count could not be verified (encrypted, unusual structure or larger than ${MAX_PDF_INSPECT_BYTES / 1024 / 1024} MB). ` +
+      `⚠ Page count could not be verified: ${unverifiedReason ?? "unknown reason"}. ` +
       `Google Drive converts only the first ${DRIVE_PDF_PAGE_LIMIT} pages: if this PDF is longer, the text below is incomplete.`,
     );
   } else if (pageCount > DRIVE_PDF_PAGE_LIMIT) {
@@ -74,17 +111,61 @@ function pdfNotices({ pageCount, hasTextLayer }: PdfInspection): string {
       `Pages ${DRIVE_PDF_PAGE_LIMIT + 1}-${pageCount} are NOT included below.`,
     );
   } else {
-    lines.push(`Pages: ${pageCount} (all converted).`);
+    lines.push(`Pages: ${pageCount} — within the ${DRIVE_PDF_PAGE_LIMIT} pages Google Drive converts.`);
+  }
+  if (hasNoText(content)) {
+    lines.push("⚠ Google Drive returned no text for this PDF (blank, or images that text recognition could not read).");
   }
   if (hasTextLayer === false) {
     lines.push(
-      "Note: no page of this PDF carries a text layer (scanned image), so the text comes from optical recognition. " +
-      "Digits are usually exact, but look-alike characters in codes (O/0, l/1/I, S/5) can be swapped: verify critical figures against the original.",
+      `Note: no page of this PDF carries a text layer (scanned image), so the text comes from optical recognition. ${OCR_RISKS}`,
+    );
+  } else if (hasTextLayer === true && hasPageImages) {
+    lines.push(
+      "Note: this PDF also contains page-sized images (scanned pages, stamps or photos). Any text inside them comes from " +
+      `optical recognition. ${OCR_RISKS}`,
     );
   } else if (hasTextLayer === null) {
-    lines.push("Note: could not check whether this PDF has a text layer; if it is a scan, verify critical figures against the original.");
+    lines.push("Note: could not check whether this PDF has a text layer; if it is a scan, verify every critical figure against the original.");
   }
   return `${lines.join("\n")}\n`;
+}
+
+interface CachedConversion {
+  at: number;
+  content: string;
+  exportMime: string;
+  notices: string;
+  cleanupWarning?: string;
+}
+
+/** Small in-memory cache, keyed by file, revision and export format. */
+class ConversionCache {
+  private readonly entries = new Map<string, CachedConversion>();
+
+  key(metadata: FileMetadata, exportFormat?: string): string | null {
+    // Without a revision stamp a changed file could be served stale: do not cache.
+    return metadata.modifiedTime ? `${metadata.id}|${metadata.modifiedTime}|${exportFormat ?? ""}` : null;
+  }
+
+  get(key: string | null): CachedConversion | undefined {
+    if (!key) return undefined;
+    const hit = this.entries.get(key);
+    if (hit && Date.now() - hit.at > CONVERSION_CACHE_TTL_MS) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    return hit;
+  }
+
+  set(key: string | null, value: CachedConversion): void {
+    if (!key) return;
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    while (this.entries.size > CONVERSION_CACHE_MAX_ENTRIES) {
+      this.entries.delete(this.entries.keys().next().value as string);
+    }
+  }
 }
 
 function ok(text: string) {
@@ -92,6 +173,7 @@ function ok(text: string) {
 }
 
 export function registerReadFileTool(server: McpServer, drive: DriveClient): void {
+  const conversions = new ConversionCache();
   server.tool(
     "drive_read_file",
     "Read the content of a file from Google Drive. Exports Google Workspace files (Docs to Markdown, Sheets to CSV, Slides to plain text), converts Office files (.docx/.xlsx/.pptx) and PDFs to text via a temporary Google copy, and reads regular text files by byte ranges (offset/maxBytes) so large files never overflow the response. Binary files are reported, never dumped.",
@@ -125,22 +207,37 @@ export function registerReadFileTool(server: McpServer, drive: DriveClient): voi
         // 2. Office files and PDFs: convert via temporary Google Workspace copy
         if (officeImportTarget(metadata.mimeType) && args.convertOffice !== false) {
           const isPdf = metadata.mimeType.toLowerCase() === PDF_MIME;
-          const inspection = isPdf ? await inspectDrivePdf(drive, metadata) : null;
-          let result;
-          try {
-            result = await convertOfficeFile(drive, args.fileId, metadata.mimeType, args.exportFormat);
-          } catch (error) {
-            if (!isPdf) throw error;
-            const reason = error instanceof Error ? error.message : String(error);
-            throw new Error(
-              `Google Drive could not convert this PDF to text: it may be damaged, password-protected or not a real PDF (Drive said: ${reason}).`,
-            );
+          conversionExportMime(metadata.mimeType, args.exportFormat); // fail fast, before any download or copy
+          const cacheKey = conversions.key(metadata, args.exportFormat);
+          let result = conversions.get(cacheKey);
+          if (!result) {
+            let converted;
+            try {
+              converted = await convertOfficeFile(drive, args.fileId, metadata.mimeType, args.exportFormat);
+            } catch (error) {
+              if (!isPdf) throw error;
+              const reason = error instanceof Error ? error.message : String(error);
+              throw new Error(
+                `Google Drive could not convert this PDF to text (Drive said: ${reason}). ` +
+                "Possible causes: a damaged or password-protected file, a full Drive, or Drive's 10 MB export limit.",
+              );
+            }
+            const notices = isPdf ? pdfNotices(await inspectDrivePdf(drive, metadata), converted.content) : "";
+            result = { at: Date.now(), content: converted.content, exportMime: converted.exportMime, notices, cleanupWarning: converted.cleanupWarning };
+            conversions.set(cacheKey, result);
           }
-          const notices = inspection ? pdfNotices(inspection) : "";
+          const notices = result.notices;
           const warning = result.cleanupWarning ? `${result.cleanupWarning}\n` : "";
           const source = isPdf ? "PDF (Drive text recognition)" : "Office format";
+          const total = result.content.length;
+          const start = Math.min(args.offset ?? 0, total);
+          const end = Math.min(total, start + (args.maxBytes ?? CONVERTED_WINDOW_CHARS));
+          const windowLine = start > 0 || end < total
+            ? `Text window: characters ${start}-${Math.max(start, end - 1)} of ${total}${end < total ? ` (truncated; continue with offset=${end})` : ""}\n`
+            : "";
           return ok(
-            `${header}Converted from ${source} via a temporary Google Workspace copy (exported as ${result.exportMime}).\n${notices}${warning}---\n${result.content}`,
+            `${header}Converted from ${source} via a temporary Google Workspace copy (exported as ${result.exportMime}).\n` +
+            `${notices}${warning}${windowLine}---\n${result.content.slice(start, end)}`,
           );
         }
 

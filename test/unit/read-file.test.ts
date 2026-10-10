@@ -35,6 +35,8 @@ function makeDriveMock(opts: {
   const calls: MockCalls = { metadataGets: [], mediaGets: [], copies: [], exports: [], deletes: [] };
   const drive = {
     files: {
+      /** Lets a test change what Drive reports (e.g. a new modifiedTime) between calls. */
+      metadataOverride: {} as Record<string, unknown>,
       async get(params: Record<string, unknown>, options?: Record<string, unknown>) {
         if (params.alt === "media") {
           calls.mediaGets.push({ params, options });
@@ -47,7 +49,7 @@ function makeDriveMock(opts: {
         }
         calls.metadataGets.push(params);
         if (params.fileId === "root") return { data: { id: "root-id-001" } };
-        return { data: { id: params.fileId, ...opts.metadata } };
+        return { data: { id: params.fileId, ...opts.metadata, ...drive.files.metadataOverride } };
       },
       async copy(params: Record<string, unknown>) {
         calls.copies.push(params);
@@ -227,6 +229,96 @@ describe("drive_read_file — PDF text extraction (defect 4, found 2026-10-10)",
     assert.ok(text.length < 2_000, "the response must not carry the image payload");
   });
 
+  it("never deletes real text when stripping images (an OCR line starting with an unclosed '[')", async () => {
+    const { drive } = makeDriveMock({
+      fileId: "pdf4",
+      metadata: { name: "multa.pdf", mimeType: "application/pdf", size: "100" },
+      exportText:
+        "Pagina 1\n![][image1]\n[Nota: el plazo de recurso es de UN MES\nImporte de la sancion: 3.000,00 EUR\nNIF B12345678\n\n" +
+        "[image1]: <data:image/png;base64,iVBORw0KGgo>",
+    });
+    const text = textOf(await handlerFor(drive)({ fileId: "pdf4" }));
+
+    assert.match(text, /plazo de recurso es de UN MES/);
+    assert.match(text, /3\.000,00 EUR/);
+    assert.match(text, /NIF B12345678/);
+    assert.doesNotMatch(text, /base64/);
+  });
+
+  it("returns long converted text in windows and says how to continue (review D9)", async () => {
+    // Exactly 10 000 characters per page: page n starts at (n - 1) * 10 000.
+    const page = (n: number) => {
+      const marker = `INICIO-PAGINA-${n} `;
+      return `${marker}${"x".repeat(10_000 - marker.length - 1)}\n`;
+    };
+    const longText = Array.from({ length: 15 }, (_, i) => page(i + 1)).join("");
+    const bytes = pdfBytes(15);
+    const { drive } = makeDriveMock({
+      fileId: "long-text",
+      metadata: { name: "contrato.pdf", mimeType: "application/pdf", size: String(bytes.length) },
+      bytes,
+      exportText: longText,
+    });
+    const first = textOf(await handlerFor(drive)({ fileId: "long-text" }));
+    assert.match(first, /Pages: 15/, "the completeness line comes in every window");
+    assert.match(first, /INICIO-PAGINA-1 /);
+    assert.doesNotMatch(first, /INICIO-PAGINA-8 /);
+    assert.match(first, new RegExp(`characters 0-59999 of ${longText.length}`));
+    assert.match(first, /continue with offset=60000/);
+    assert.ok(first.length < 62_000, "one window, not the whole text");
+
+    const second = textOf(await handlerFor(drive)({ fileId: "long-text", offset: 60_000 }));
+    assert.match(second, /INICIO-PAGINA-7 /);
+    assert.doesNotMatch(second, /INICIO-PAGINA-1 /);
+    assert.match(second, /continue with offset=120000/);
+  });
+
+  it("serves every window from ONE conversion, so windows always fit together (OCR can differ between runs)", async () => {
+    const longText = "A".repeat(70_000) + "FIN";
+    const bytes = pdfBytes(2);
+    const { drive, calls } = makeDriveMock({
+      fileId: "cached",
+      metadata: { name: "c.pdf", mimeType: "application/pdf", size: String(bytes.length), modifiedTime: "2026-10-10T00:00:00Z" },
+      bytes,
+      exportText: longText,
+    });
+    const handler = handlerFor(drive);
+    await handler({ fileId: "cached" });
+    const second = textOf(await handler({ fileId: "cached", offset: 60_000 }));
+
+    assert.equal(calls.copies.length, 1, "the second window must reuse the first conversion");
+    assert.match(second, /FIN/);
+  });
+
+  it("converts again when the file has changed in Drive", async () => {
+    const bytes = pdfBytes(1);
+    const { drive, calls } = makeDriveMock({
+      fileId: "changed",
+      metadata: { name: "c.pdf", mimeType: "application/pdf", size: String(bytes.length), modifiedTime: "2026-10-10T00:00:00Z" },
+      bytes,
+      exportText: "v1",
+    });
+    const handler = handlerFor(drive);
+    await handler({ fileId: "changed" });
+    drive.files.metadataOverride = { modifiedTime: "2026-10-10T09:00:00Z" };
+    await handler({ fileId: "changed" });
+
+    assert.equal(calls.copies.length, 2);
+  });
+
+  it("strips embedded images from HTML exports too", async () => {
+    const { drive } = makeDriveMock({
+      fileId: "html1",
+      metadata: { name: "f.pdf", mimeType: "application/pdf", size: "100" },
+      exportText: `<p>Total 108,90</p><img src="data:image/png;base64,${"A".repeat(40_000)}" alt="logo"><p>Fin</p>`,
+    });
+    const text = textOf(await handlerFor(drive)({ fileId: "html1", exportFormat: "html" }));
+    assert.match(text, /Total 108,90/);
+    assert.match(text, /Fin/);
+    assert.doesNotMatch(text, /base64/);
+    assert.match(text, /1 embedded image\(s\) omitted/);
+  });
+
   it("with convertOffice=false reports the PDF as binary without copying or downloading it", async () => {
     const { drive, calls } = makeDriveMock({
       fileId: "pdf2",
@@ -265,37 +357,91 @@ describe("drive_read_file — PDF completeness and origin notices (defect 5, fou
     assert.match(text, /1\.234,56/, "the converted text is still returned");
   });
 
-  it("confirms the page count when every page was converted", async () => {
+  it("states the page count is within Drive's limit, without claiming what it cannot check (review D6)", async () => {
     const { drive } = pdfMock("short", pdfBytes(80));
     const text = textOf(await handlerFor(drive)({ fileId: "short" }));
 
-    assert.match(text, /Pages: 80 \(all converted\)/);
-    assert.doesNotMatch(text, /INCOMPLETE|could not be verified|optical recognition/);
+    assert.match(text, /Pages: 80 — within the 80 pages Google Drive converts\./);
+    assert.doesNotMatch(text, /all converted|INCOMPLETE|could not be verified|optical recognition|no text/);
   });
 
-  it("flags scans: the text comes from optical recognition and look-alike characters can be swapped", async () => {
+  it("warns when Drive returns no text for a PDF that has pages (review D6)", async () => {
+    const { drive } = makeDriveMock({
+      fileId: "blank",
+      metadata: { name: "blank.pdf", mimeType: "application/pdf", size: String(pdfBytes(3).length) },
+      bytes: pdfBytes(3),
+      copyId: "tmp-blank",
+      exportText: "  \n![][image1]\n\n",
+    });
+    const text = textOf(await handlerFor(drive)({ fileId: "blank" }));
+
+    assert.match(text, /Google Drive returned no text/);
+  });
+
+  it("flags scans: optical recognition can swap look-alike characters AND misread amounts (review D11)", async () => {
     const { drive } = pdfMock("scan", pdfBytes(2, "scan"));
     const text = textOf(await handlerFor(drive)({ fileId: "scan" }));
 
     assert.match(text, /optical recognition/);
     assert.match(text, /O\/0/);
-    assert.match(text, /verify critical figures against the original/);
+    assert.match(text, /amounts and decimal separators/);
+    assert.match(text, /occasionally drop whole pages without any error/);
+    assert.match(text, /check that every page is present and verify every critical figure against the original/);
   });
 
-  it("says the page count could not be verified when the structure is unreadable", async () => {
+  it("adds an optical-recognition note when a PDF with some typed text also carries page-sized images (review D5)", async () => {
+    const content = "q 595 0 0 842 0 0 cm /Im0 Do Q BT /F1 7 Tf 40 20 Td (CSV: ABCD1234) Tj ET";
+    const image = "\xFF\xD8\xFF\xD9";
+    const bytes = Buffer.from(
+      "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n" +
+        `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n` +
+        `5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 /Filter /DCTDecode /Length ${image.length} >>\nstream\n${image}\nendstream\nendobj\n` +
+        "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n0\n%%EOF\n",
+      "latin1",
+    );
+    const { drive } = pdfMock("stamped", bytes);
+    const text = textOf(await handlerFor(drive)({ fileId: "stamped" }));
+
+    assert.match(text, /page-sized images/);
+    assert.match(text, /optical recognition/);
+    assert.match(text, /occasionally drop whole pages without any error/);
+    assert.match(text, /check that every page is present and verify every critical figure against the original/);
+  });
+
+  it("says why the count is unverified when the structure cannot be read with certainty (review D14)", async () => {
     const { drive } = pdfMock("odd", Buffer.from("%PDF-1.7\n\x00\x01 unreadable\n", "latin1"));
     const text = textOf(await handlerFor(drive)({ fileId: "odd" }));
 
-    assert.match(text, /Page count could not be verified/);
+    assert.match(text, /Page count could not be verified: its structure could not be read with certainty/);
     assert.match(text, /first 80 pages/);
   });
 
-  it("does not download PDFs above the inspection cap, and says the count is unverified", async () => {
+  it("does not download PDFs above the inspection cap, and says that is why (review D14)", async () => {
     const { drive, calls } = pdfMock("huge", pdfBytes(3), { size: String(200 * 1024 * 1024) });
     const text = textOf(await handlerFor(drive)({ fileId: "huge" }));
 
     assert.equal(calls.mediaGets.length, 0, "a 200 MB PDF must not be downloaded for inspection");
-    assert.match(text, /Page count could not be verified/);
+    assert.match(text, /Page count could not be verified: the file is larger than 50 MB/);
+  });
+
+  it("says the size is unknown when Drive reports none (review D14)", async () => {
+    const { drive, calls } = pdfMock("nosize", pdfBytes(3), { size: undefined });
+    const text = textOf(await handlerFor(drive)({ fileId: "nosize" }));
+
+    assert.equal(calls.mediaGets.length, 0);
+    assert.match(text, /Page count could not be verified: Drive did not report the file size/);
+  });
+
+  it("checks the export format before downloading anything (review D10)", async () => {
+    const { drive, calls } = pdfMock("fmt", pdfBytes(3));
+    const result = await handlerFor(drive)({ fileId: "fmt", exportFormat: "pdf" });
+
+    assert.equal(result.isError, true);
+    assert.equal(calls.mediaGets.length, 0, "no download for a request that cannot succeed");
+    assert.equal(calls.copies.length, 0);
+    assert.match(textOf(result), /binary/);
   });
 
   it("explains a conversion failure in plain terms and still cleans up", async () => {
@@ -310,8 +456,8 @@ describe("drive_read_file — PDF completeness and origin notices (defect 5, fou
     const text = textOf(result);
 
     assert.equal(result.isError, true);
-    assert.match(text, /could not convert this PDF/);
-    assert.match(text, /damaged, password-protected/);
+    assert.match(text, /could not convert this PDF to text/);
+    assert.match(text, /Possible causes: a damaged or password-protected file, a full Drive, or Drive's 10 MB export limit/);
     assert.match(text, /Bad Request/, "the original Drive error is kept for diagnosis");
     assert.equal(calls.deletes.length, 1);
   });

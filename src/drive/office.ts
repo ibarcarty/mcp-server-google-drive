@@ -37,19 +37,40 @@ export const DRIVE_PDF_PAGE_LIMIT = 80;
 // Converted Docs keep their pictures (a logo, or every page of a scanned PDF)
 // as base64 data-URI reference definitions in the markdown export: megabytes
 // of noise that would drown the text (found in the live smoke, 2026-10-10).
-const EMBEDDED_IMAGE_DEFINITION = /^\[[^\]]+\]:\s*<data:image\/[^>]*>\s*$/gm;
+// Single-line only: a line starting with an unclosed "[" (common in OCR output) must
+// never let the match run across lines and swallow real text (review D3, 2026-10-10).
+const EMBEDDED_IMAGE_DEFINITION = /^\[[^\]\n]+\]:[ \t]*<data:image\/[^>\n]*>[ \t]*$/gm;
+
+// The same pictures in an HTML export: <img src="data:image/...;base64,...">.
+const EMBEDDED_IMAGE_TAG = /<img\b[^>]*\bsrc\s*=\s*["']data:image\/[^"']*["'][^>]*>/gi;
 
 function omitEmbeddedImages(content: string): string {
   let omitted = 0;
-  const cleaned = content.replace(EMBEDDED_IMAGE_DEFINITION, () => {
+  const count = () => {
     omitted++;
     return "";
-  });
+  };
+  const cleaned = content.replace(EMBEDDED_IMAGE_DEFINITION, count).replace(EMBEDDED_IMAGE_TAG, count);
   return omitted === 0 ? content : `${cleaned.trimEnd()}\n\n(${omitted} embedded image(s) omitted)`;
 }
 
 export function officeImportTarget(mimeType: string): string | null {
   return OFFICE_IMPORT_TARGETS[mimeType.toLowerCase()] ?? null;
+}
+
+/** Text MIME type a conversion will be exported as; throws before any API call if the format is binary. */
+export function conversionExportMime(sourceMimeType: string, exportFormat?: string): string {
+  const target = officeImportTarget(sourceMimeType);
+  if (!target) {
+    throw new Error(`Not a convertible Office type: ${sourceMimeType}`);
+  }
+  const exportMime = resolveExportMimeType(target, exportFormat);
+  if (!isTextualMime(exportMime)) {
+    throw new Error(
+      `Export format "${exportFormat}" is binary (${exportMime}) and cannot be returned inline. Use a text format instead.`,
+    );
+  }
+  return exportMime;
 }
 
 export interface OfficeConversionResult {
@@ -70,16 +91,8 @@ export async function convertOfficeFile(
   sourceMimeType: string,
   exportFormat?: string,
 ): Promise<OfficeConversionResult> {
-  const target = officeImportTarget(sourceMimeType);
-  if (!target) {
-    throw new Error(`Not a convertible Office type: ${sourceMimeType}`);
-  }
-  const exportMime = resolveExportMimeType(target, exportFormat);
-  if (!isTextualMime(exportMime)) {
-    throw new Error(
-      `Export format "${exportFormat}" is binary (${exportMime}) and cannot be returned inline. Use a text format instead.`,
-    );
-  }
+  const exportMime = conversionExportMime(sourceMimeType, exportFormat);
+  const target = officeImportTarget(sourceMimeType) as string;
 
   const rootRes = await drive.files.get({ fileId: "root", fields: "id" });
   const rootId = rootRes.data.id ?? "root";
