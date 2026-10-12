@@ -20,7 +20,16 @@ export function timedPoint(dateTime: string, timeZone: string): calendar_v3.Sche
       `Invalid dateTime '${dateTime}'. Timed events need 'YYYY-MM-DDTHH:mm[:ss]' (e.g. '2026-10-05T09:00:00'). For all-day events pass allDay: true with a 'YYYY-MM-DD' date.`,
     );
   }
-  return { dateTime, timeZone };
+  return { dateTime: withSeconds(dateTime), timeZone };
+}
+
+/**
+ * Add ':00' seconds to a 'YYYY-MM-DDTHH:mm' time, keeping any trailing offset.
+ * The Calendar API rejects RFC 3339 times without seconds with a bare
+ * "Bad Request" (reproduced live on 2026-10-12), although the tool accepts them.
+ */
+export function withSeconds(dateTime: string): string {
+  return dateTime.replace(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?=$|[Z+-])/, "$1:00");
 }
 
 /**

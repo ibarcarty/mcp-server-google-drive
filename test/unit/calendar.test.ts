@@ -152,6 +152,43 @@ describe("calendar_create_event — timed events", () => {
     });
     assert.deepEqual(body.end, { dateTime: "2026-08-24T09:15:00", timeZone: "Europe/Madrid" });
   });
+
+  // Regression (S46, 12-10-2026): the tool documents 'HH:mm[:ss]', but the Calendar
+  // API answers a bare "Bad Request" when dateTime has no seconds. Reproduced live.
+  it("pads a start and end given without seconds", async () => {
+    const { calendar, calls } = makeCalendarMock();
+    const handler = handlerFor(registerCalendarCreateEventTool, calendar);
+    const result = await handler({
+      summary: "Aviso fiscal",
+      start: "2026-10-19T09:00",
+      end: "2026-10-19T09:30",
+    });
+
+    assert.ok(!result.isError, textOf(result));
+    const body = calls.inserts[0].requestBody as Record<string, any>;
+    assert.deepEqual(body.start, { dateTime: "2026-10-19T09:00:00", timeZone: "Europe/Madrid" });
+    assert.deepEqual(body.end, { dateTime: "2026-10-19T09:30:00", timeZone: "Europe/Madrid" });
+  });
+
+  it("pads a start without seconds when the end defaults to one hour later", async () => {
+    const { calendar, calls } = makeCalendarMock();
+    const handler = handlerFor(registerCalendarCreateEventTool, calendar);
+    await handler({ summary: "Aviso fiscal", start: "2026-10-19T09:00" });
+
+    const body = calls.inserts[0].requestBody as Record<string, any>;
+    assert.equal(body.start.dateTime, "2026-10-19T09:00:00");
+    assert.equal(body.end.dateTime, "2026-10-19T10:00:00");
+  });
+
+  it("keeps an explicit UTC offset after padding the seconds", async () => {
+    const { calendar, calls } = makeCalendarMock();
+    const handler = handlerFor(registerCalendarCreateEventTool, calendar);
+    await handler({ summary: "Aviso fiscal", start: "2026-10-19T09:00+02:00" });
+
+    const body = calls.inserts[0].requestBody as Record<string, any>;
+    assert.equal(body.start.dateTime, "2026-10-19T09:00:00+02:00");
+    assert.equal(body.end.dateTime, "2026-10-19T10:00:00+02:00");
+  });
 });
 
 describe("calendar_create_event — all-day events", () => {
@@ -212,6 +249,16 @@ describe("calendar_update_event", () => {
     const body = calls.patches[0].requestBody as Record<string, any>;
     assert.deepEqual(body.start, { dateTime: "2026-09-14T10:00:00", timeZone: "Europe/Madrid" });
     assert.deepEqual(body.end, { dateTime: "2026-09-14T10:30:00", timeZone: "Europe/Madrid" });
+  });
+
+  it("pads times without seconds when rescheduling (same Bad Request as create)", async () => {
+    const { calendar, calls } = makeCalendarMock();
+    const handler = handlerFor(registerCalendarUpdateEventTool, calendar);
+    await handler({ eventId: "evt-9", start: "2026-09-14T10:00", end: "2026-09-14T10:30" });
+
+    const body = calls.patches[0].requestBody as Record<string, any>;
+    assert.equal(body.start.dateTime, "2026-09-14T10:00:00");
+    assert.equal(body.end.dateTime, "2026-09-14T10:30:00");
   });
 });
 
